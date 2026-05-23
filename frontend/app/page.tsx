@@ -141,7 +141,7 @@ function FloatingPhone() {
             <p className="mt-4 text-xl font-semibold text-[#7a1f1f]">Anthony, 21</p>
             <p className="text-[#b8860b]">91% match</p>
             <p className="mt-4 text-stone-600">
-              both of you enjoy early workouts, live music, and planning weekend trips ahead of time.
+              both of you enjoy running, raves, and planning trips ahead of time.
             </p>
             <p className="mt-4 font-medium text-[#7a1f1f]">reply YES to connect · NO to skip</p>
           </div>
