@@ -1,10 +1,13 @@
 """
 SMS onboarding state machine.
-Handles incoming SMS messages, walks the user through onboarding,
-and routes YES/NO responses to active matches.
+
+Flow: start → name → age → city → gender → seeking → q1..q5 → complete
+Once complete, handles YES/NO match responses and STOP/HELP/DELETE.
 """
 import logging
+from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_
 from .models import User, Message, Match
 from .sms_service import send_sms
 from .personality import extract_personality
@@ -20,11 +23,12 @@ QUESTIONS = [
 ]
 QUESTION_KEYS = [k for k, _ in QUESTIONS]
 
+FLOW = ["start", "name", "age", "city", "gender", "seeking"] + QUESTION_KEYS + ["complete"]
+
 
 def _next_step(current: str) -> str:
-    flow = ["start", "name", "age", "city"] + QUESTION_KEYS + ["complete"]
     try:
-        return flow[flow.index(current) + 1]
+        return FLOW[FLOW.index(current) + 1]
     except (ValueError, IndexError):
         return "complete"
 
@@ -33,31 +37,136 @@ def _question_for(step: str) -> str | None:
     return dict(QUESTIONS).get(step)
 
 
+def _parse_gender(text: str) -> str | None:
+    t = text.lower().strip()
+    if t in ("m", "man", "male", "guy", "men"):
+        return "man"
+    if t in ("w", "f", "woman", "female", "women"):
+        return "woman"
+    if t in ("nb", "enby", "nonbinary", "non-binary", "non binary", "other"):
+        return "nonbinary"
+    return None
+
+
+def _parse_seeking(text: str) -> str | None:
+    t = text.lower().strip()
+    if t in ("m", "men", "man", "guys", "male"):
+        return "men"
+    if t in ("w", "f", "women", "woman", "female"):
+        return "women"
+    if t in ("everyone", "all", "anyone", "both", "any"):
+        return "everyone"
+    return None
+
+
+# ─────────────────────────────────────────────────────────
+# Public entry point
+# ─────────────────────────────────────────────────────────
+
 def handle_incoming(db: Session, phone: str, body: str) -> str:
     """Process an inbound SMS. Returns the reply text that was sent."""
     body = (body or "").strip()
+    upper = body.upper()
     user = db.query(User).filter(User.phone == phone).first()
 
     if not user:
-        user = User(phone=phone, onboarding_step="start", answers={})
+        user = User(phone=phone, onboarding_step="start", answers={}, is_active=True)
         db.add(user)
         db.commit()
         db.refresh(user)
 
-    # Log incoming
+    # Log every inbound message
     db.add(Message(user_id=user.id, direction="in", body=body))
+    user.last_active_at = datetime.utcnow()
     db.commit()
 
-    # YES/NO to an active match takes priority once onboarded
-    if user.is_complete and body.upper() in ("YES", "NO", "Y", "N"):
-        reply = _handle_match_response(db, user, body.upper())
+    # ── Universal commands work at any point ──
+
+    if upper == "HELP":
+        reply = (
+            "Yuanfen 缘 — SMS matchmaking. Reply STOP to opt out, "
+            "DELETE to remove your data, RESUME to start matches again, "
+            "or PAUSE to pause matches. Questions: hello@joinyuanfen.com"
+        )
         send_sms(db, user, reply)
         return reply
+
+    if upper == "STOP":
+        user.is_active = False
+        db.commit()
+        reply = (
+            "You've been unsubscribed. You won't receive any more messages. "
+            "Reply RESUME to opt back in, or DELETE to remove all data."
+        )
+        send_sms(db, user, reply)
+        return reply
+
+    if upper == "RESUME":
+        user.is_active = True
+        db.commit()
+        reply = "Welcome back. We'll text when we find a resonant match."
+        send_sms(db, user, reply)
+        return reply
+
+    if upper == "PAUSE":
+        user.is_active = False
+        db.commit()
+        reply = "Matches paused. Reply RESUME when you're ready again."
+        send_sms(db, user, reply)
+        return reply
+
+    if upper == "DELETE":
+        # Two-step confirmation
+        if user.onboarding_step == "awaiting_delete_confirm":
+            phone_to_log = user.phone
+            user_id = user.id
+            # Explicitly delete matches first (SQLite doesn't enforce FK cascades by default)
+            db.query(Match).filter(
+                (Match.user_a_id == user_id) | (Match.user_b_id == user_id)
+            ).delete(synchronize_session=False)
+            db.delete(user)
+            db.commit()
+            logger.info("Deleted user %s on request.", phone_to_log)
+            return ""  # User row is gone, can't send via send_sms — silent
+        user.onboarding_step = "awaiting_delete_confirm"
+        db.commit()
+        reply = (
+            "This will permanently delete your profile, messages, and any "
+            "matches. Reply DELETE again to confirm, or anything else to cancel."
+        )
+        send_sms(db, user, reply)
+        return reply
+
+    # If they were in delete-confirm and sent anything else, cancel
+    if user.onboarding_step == "awaiting_delete_confirm":
+        user.onboarding_step = "complete" if user.is_complete else _previous_step_for(user)
+        db.commit()
+        reply = "Cancelled. Nothing was deleted."
+        send_sms(db, user, reply)
+        return reply
+
+    # ── Match response (YES/NO) after onboarding ──
+
+    if user.is_complete and upper in ("YES", "NO", "Y", "N"):
+        reply = _handle_match_response(db, user, upper)
+        send_sms(db, user, reply)
+        return reply
+
+    # ── Otherwise: continue onboarding ──
 
     reply = _advance_onboarding(db, user, body)
     send_sms(db, user, reply)
     return reply
 
+
+def _previous_step_for(user: User) -> str:
+    """Fallback when we cancel out of awaiting_delete_confirm pre-onboarding."""
+    return "complete" if user.is_complete else "start"
+
+
+# ─────────────────────────────────────────────────────────
+# Onboarding state machine
+# ─────────────────────────────────────────────────────────
 
 def _advance_onboarding(db: Session, user: User, body: str) -> str:
     step = user.onboarding_step
@@ -67,7 +176,8 @@ def _advance_onboarding(db: Session, user: User, body: str) -> str:
         db.commit()
         return (
             "Welcome to Yuanfen 缘 — connection by fate, refined by intention. "
-            "We'll ask a few questions to learn your emotional shape. What's your first name?"
+            "We'll ask a few questions to learn your emotional shape. "
+            "Reply STOP at any time to opt out. What's your first name?"
         )
 
     if step == "name":
@@ -86,10 +196,28 @@ def _advance_onboarding(db: Session, user: User, body: str) -> str:
                 return "And what city are you in?"
         except (ValueError, TypeError):
             pass
-        return "Please reply with your age as a number (e.g. 28)."
+        return "Please reply with your age as a number (e.g. 28). You must be 18 or older."
 
     if step == "city":
         user.city = body[:80]
+        user.onboarding_step = "gender"
+        db.commit()
+        return "How do you describe yourself? Reply with: man, woman, or nonbinary."
+
+    if step == "gender":
+        g = _parse_gender(body)
+        if not g:
+            return "Sorry, I didn't catch that. Reply with: man, woman, or nonbinary."
+        user.gender = g
+        user.onboarding_step = "seeking"
+        db.commit()
+        return "Who would you like to meet? Reply with: men, women, or everyone."
+
+    if step == "seeking":
+        s = _parse_seeking(body)
+        if not s:
+            return "Sorry, I didn't catch that. Reply with: men, women, or everyone."
+        user.seeking = s
         user.onboarding_step = "q1"
         db.commit()
         return _question_for("q1") or ""
@@ -103,7 +231,6 @@ def _advance_onboarding(db: Session, user: User, body: str) -> str:
         db.commit()
 
         if nxt == "complete":
-            # Run personality extraction
             user.personality = extract_personality(answers)
             user.is_complete = True
             db.commit()
@@ -117,26 +244,31 @@ def _advance_onboarding(db: Session, user: User, body: str) -> str:
     if step == "complete":
         return (
             "You're all set. We'll reach out when we find a resonant match. "
-            "Reply PAUSE to stop matches, RESUME to start again."
+            "Reply PAUSE to pause matches, STOP to opt out, HELP for help."
         )
 
     return "Hi. Reply START to begin."
 
 
+# ─────────────────────────────────────────────────────────
+# Match response routing
+# ─────────────────────────────────────────────────────────
+
 def _handle_match_response(db: Session, user: User, response: str) -> str:
-    """Route YES/NO to the most recent open match."""
     yes = response in ("YES", "Y")
 
-    # Find the most recent match awaiting this user's response
     pending = db.query(Match).filter(
-        ((Match.user_a_id == user.id) & (Match.state == "sent_to_a")) |
-        ((Match.user_b_id == user.id) & (Match.state == "sent_to_b"))
+        or_(
+            and_(Match.user_a_id == user.id, Match.state == "sent_to_a"),
+            and_(Match.user_b_id == user.id, Match.state == "sent_to_b"),
+        )
     ).order_by(Match.created_at.desc()).first()
 
     if not pending:
         return "No pending introductions right now. We'll text when we find one."
 
     is_a = (pending.user_a_id == user.id)
+
     if is_a:
         pending.a_response = "YES" if yes else "NO"
         if not yes:
@@ -144,13 +276,12 @@ def _handle_match_response(db: Session, user: User, response: str) -> str:
             db.commit()
             return "Understood. We'll keep looking."
 
-        # A said yes — now ask B
         pending.state = "sent_to_b"
         db.commit()
-        partner = db.query(User).filter(User.id == pending.user_b_id).first()
-        if partner:
+        partner = db.get(User, pending.user_b_id)
+        if partner and partner.is_active:
             msg = (
-                f"Yuanfen 缘 — we found someone with {pending.score}% compatibility. "
+                f"Yuanfen 缘 — we think you'd enjoy meeting someone. "
                 f"{pending.reasoning} "
                 f"Reply YES to be introduced, or NO to pass."
             )
@@ -167,9 +298,8 @@ def _handle_match_response(db: Session, user: User, response: str) -> str:
     pending.state = "connected"
     db.commit()
 
-    # Both said yes — exchange contact
-    a = db.query(User).filter(User.id == pending.user_a_id).first()
-    b = db.query(User).filter(User.id == pending.user_b_id).first()
+    a = db.get(User, pending.user_a_id)
+    b = db.get(User, pending.user_b_id)
     if a and b:
         send_sms(db, a, f"It's mutual. Meet {b.name} — {b.phone}. The rest is yours. 缘")
         return f"It's mutual. Meet {a.name} — {a.phone}. The rest is yours. 缘"

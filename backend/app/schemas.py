@@ -31,9 +31,13 @@ class UserOut(BaseModel):
     name: Optional[str]
     age: Optional[int]
     city: Optional[str]
+    gender: Optional[str]
+    seeking: Optional[str]
     onboarding_step: str
     is_complete: bool
+    is_active: bool
     personality: Optional[dict[str, Any]] = {}
+    last_active_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:

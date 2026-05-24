@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, ForeignKey, Boolean, Index
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -13,18 +13,22 @@ class User(Base):
     age = Column(Integer, nullable=True)
     city = Column(String, nullable=True)
 
+    # Demographics for filtering
+    gender = Column(String, nullable=True)   # "man", "woman", "nonbinary"
+    seeking = Column(String, nullable=True)  # "men", "women", "everyone"
+
     # Onboarding state
-    onboarding_step = Column(String, default="start")  # start, name, age, city, q1, q2, q3, q4, q5, complete
+    onboarding_step = Column(String, default="start")
     is_complete = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
 
-    # Raw answers
+    # Raw answers (the actual valuable data)
     answers = Column(JSON, default=dict)
 
-    # AI-extracted personality profile
+    # AI-extracted personality profile (used as a summary card, not the match itself)
     personality = Column(JSON, default=dict)
-    # Example: {"openness": 0.8, "emotional_depth": 0.7, "humor": "dry", "values": [...], "summary": "..."}
 
+    last_active_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -35,7 +39,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     direction = Column(String)  # "in" or "out"
     body = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -47,25 +51,28 @@ class Match(Base):
     __tablename__ = "matches"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_a_id = Column(Integer, ForeignKey("users.id"))
-    user_b_id = Column(Integer, ForeignKey("users.id"))
-    score = Column(Integer)  # 0-100
-    reasoning = Column(Text)
+    user_a_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    user_b_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    score = Column(Integer)  # 0-100, internal use only (not shown to users)
+    reasoning = Column(Text)  # AI-generated, shown to both users
     state = Column(String, default="pending")
-    # pending -> sent_to_a -> a_yes / a_no -> sent_to_b -> b_yes / b_no -> connected / rejected
-    a_response = Column(String, nullable=True)  # YES, NO, null
+    a_response = Column(String, nullable=True)
     b_response = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user_a = relationship("User", foreign_keys=[user_a_id])
     user_b = relationship("User", foreign_keys=[user_b_id])
 
+    __table_args__ = (
+        Index("ix_match_pair", "user_a_id", "user_b_id"),
+    )
+
 
 class WaitlistEntry(Base):
     __tablename__ = "waitlist"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    phone = Column(String, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    phone = Column(String, nullable=True, index=True)
     referral = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
