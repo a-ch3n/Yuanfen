@@ -109,9 +109,23 @@ function WaitlistForm() {
           join
         </button>
       </div>
-      <p className={`text-xs ${error ? "text-[#9b1c1c]" : "text-stone-500"}`}>
-        {error || "us numbers only"}
-      </p>
+      {error ? (
+        <p className="text-xs text-[#9b1c1c]">{error}</p>
+      ) : (
+        <p className="px-2 text-[11px] leading-5 text-stone-500">
+          by tapping join, you agree to receive sms from yuanfen for onboarding
+          and match alerts. msg &amp; data rates may apply. ~1–10 msgs/week.
+          reply <strong>STOP</strong> to opt out, <strong>HELP</strong> for
+          help.{" "}
+          <a href="/privacy" className="underline hover:text-[#9b1c1c]">
+            privacy
+          </a>{" "}
+          ·{" "}
+          <a href="/terms" className="underline hover:text-[#9b1c1c]">
+            terms
+          </a>
+        </p>
+      )}
     </form>
   );
 }
@@ -141,7 +155,7 @@ function FloatingPhone() {
             <p className="mt-4 text-xl font-semibold text-[#7a1f1f]">Anthony, 21</p>
             <p className="text-[#b8860b]">91% match</p>
             <p className="mt-4 text-stone-600">
-              both of you enjoy running, raves, and planning trips ahead of time.
+              both of you enjoy early workouts, live music, and planning weekend trips ahead of time.
             </p>
             <p className="mt-4 font-medium text-[#7a1f1f]">reply YES to connect · NO to skip</p>
           </div>
@@ -392,7 +406,14 @@ export default function App() {
       </section>
 
       <footer className="border-t border-[#d4af37]/30 px-5 py-8 text-center text-xs text-stone-500">
-        © 2026 yuanfen · us only · privacy · terms
+        <p>© 2026 yuanfen · us only</p>
+        <p className="mt-2 space-x-3">
+          <a href="/privacy" className="hover:text-[#9b1c1c]">privacy</a>
+          <span>·</span>
+          <a href="/terms" className="hover:text-[#9b1c1c]">terms</a>
+          <span>·</span>
+          <a href="mailto:hello@joinyuanfen.com" className="hover:text-[#9b1c1c]">contact</a>
+        </p>
       </footer>
     </main>
   );

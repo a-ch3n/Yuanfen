@@ -11,8 +11,11 @@ type User = {
   name: string | null;
   age: number | null;
   city: string | null;
+  gender: string | null;
+  seeking: string | null;
   onboarding_step: string;
   is_complete: boolean;
+  is_active: boolean;
   personality: Record<string, any>;
   created_at: string;
 };
@@ -91,6 +94,20 @@ export default function AdminPage() {
       await refresh();
     } catch {
       setMatchingStatus("failed.");
+    }
+  }
+
+  async function deleteUser(id: number) {
+    try {
+      const r = await fetch(`${API}/admin/users/${id}`, {
+        method: "DELETE",
+        headers: { "X-Admin-Token": token },
+      });
+      if (r.ok) {
+        await refresh();
+      }
+    } catch {
+      // Silent fail; refresh below would show stale data
     }
   }
 
@@ -195,7 +212,7 @@ export default function AdminPage() {
           <p className="mb-6 text-sm text-[#7a1f1f] italic">{matchingStatus}</p>
         )}
 
-        {tab === "users" && <UsersList users={users} />}
+        {tab === "users" && <UsersList users={users} onDelete={deleteUser} />}
         {tab === "matches" && <MatchesList matches={matches} users={users} />}
         {tab === "waitlist" && <WaitlistList waitlist={waitlist} />}
       </div>
@@ -213,7 +230,7 @@ function Stat({ label, n, sub }: { label: string; n: number; sub?: string }) {
   );
 }
 
-function UsersList({ users }: { users: User[] }) {
+function UsersList({ users, onDelete }: { users: User[]; onDelete: (id: number) => void }) {
   if (!users.length) return <Empty label="no members yet." />;
   return (
     <div className="space-y-3">
@@ -229,7 +246,9 @@ function UsersList({ users }: { users: User[] }) {
                 {u.name || <span className="italic text-stone-400">unnamed</span>}
               </span>
               <span className="text-stone-500 text-sm truncate">
-                {u.age && `${u.age} · `}{u.city}
+                {u.age && `${u.age} · `}
+                {u.gender && `${u.gender} seeking ${u.seeking || "?"} · `}
+                {u.city}
               </span>
               <span className="font-mono text-xs text-stone-400 hidden md:inline">{u.phone}</span>
             </div>
@@ -260,6 +279,19 @@ function UsersList({ users }: { users: User[] }) {
               )}
             </div>
           )}
+          <div className="mt-3 pt-3 border-t border-[#d4af37]/20 flex justify-end">
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirm(`Permanently delete ${u.name || "this user"} and all their data?`)) {
+                  onDelete(u.id);
+                }
+              }}
+              className="text-xs uppercase tracking-[0.25em] text-stone-400 hover:text-[#9b1c1c] transition"
+            >
+              delete
+            </button>
+          </div>
         </details>
       ))}
     </div>
@@ -283,21 +315,21 @@ function MatchesList({ matches, users }: { matches: Match[]; users: User[] }) {
       {matches.map((m) => (
         <div
           key={m.id}
-          className="rounded-2xl border border-[#d4af37]/30 bg-white/60 backdrop-blur px-5 py-4 flex items-center justify-between gap-4"
+          className="rounded-2xl border border-[#d4af37]/30 bg-white/60 backdrop-blur px-5 py-4 flex items-start justify-between gap-4"
         >
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-[#7a1f1f]">
               {name(m.user_a_id)} <span className="text-[#b8860b] mx-2">&amp;</span> {name(m.user_b_id)}
             </p>
             {m.reasoning && (
-              <p className="text-sm text-stone-600 mt-1">{m.reasoning}</p>
+              <p className="text-sm text-stone-600 mt-1 italic">&ldquo;{m.reasoning}&rdquo;</p>
             )}
           </div>
           <div className="text-right shrink-0">
-            <p className="text-2xl font-semibold text-[#9b1c1c]">{m.score}%</p>
-            <p className="text-xs uppercase tracking-[0.25em] text-stone-500 mt-1">
+            <p className="text-xs uppercase tracking-[0.25em] text-stone-500">
               {m.state.replace(/_/g, " ")}
             </p>
+            <p className="text-[10px] text-stone-400 mt-1 font-mono">score {m.score}</p>
           </div>
         </div>
       ))}
