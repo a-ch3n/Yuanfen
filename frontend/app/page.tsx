@@ -24,6 +24,10 @@ function isValidUsPhone(phone: string) {
   return digitsOnly(phone).length === 10;
 }
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 const fadeUp = {
   hidden: { opacity: 0, y: 36 },
   show: { opacity: 1, y: 0, transition: { duration: 0.65, ease: "easeOut" as const } },
@@ -32,7 +36,8 @@ const fadeUp = {
 const faqs: [string, string][] = [
   ["is this free?", "Joining the waitlist is free. Early users get access first."],
   ["do i need an app?", "No. yuanfen works through SMS."],
-  ["is it private?", "Yes. Your profile is never public."],
+  ["can i join without giving my phone number?", "Yes. You can join the email-only waitlist by entering your email above. You'll be notified when we open access in your city — no SMS required."],
+  ["is it private?", "Yes. Your profile is never public. Your phone number is never shared with third parties."],
   ["where is this available?", "US numbers only for now."],
 ];
 
@@ -50,35 +55,43 @@ const quotes = [
 ];
 
 function WaitlistForm() {
+  const [mode, setMode] = useState<"sms" | "email">("sms");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-
-    if (!isValidUsPhone(phone)) {
-      setError("enter a valid us phone number");
-      return;
-    }
-
     setError("");
+
+    const body: { phone?: string; email?: string } = {};
+    if (mode === "sms") {
+      if (!isValidUsPhone(phone)) {
+        setError("enter a valid us phone number");
+        return;
+      }
+      body.phone = digitsOnly(phone);
+    } else {
+      if (!isValidEmail(email)) {
+        setError("enter a valid email");
+        return;
+      }
+      body.email = email.trim();
+    }
 
     try {
       const res = await fetch(`${API}/waitlist`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ phone: digitsOnly(phone) }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-
       if (res.ok) {
         setJoined(true);
       } else {
         setError("something went wrong");
       }
-    } catch (err) {
+    } catch {
       setError("backend not running");
     }
   }
@@ -97,26 +110,77 @@ function WaitlistForm() {
 
   return (
     <form onSubmit={submit} className="space-y-3">
+      {/* Mode toggle */}
+      <div className="flex justify-center gap-1 mb-2 text-xs">
+        <button
+          type="button"
+          onClick={() => { setMode("sms"); setError(""); }}
+          className={`px-4 py-1.5 rounded-full transition ${
+            mode === "sms"
+              ? "bg-[#9b1c1c] text-[#f8df8e]"
+              : "text-stone-500 hover:text-[#9b1c1c]"
+          }`}
+        >
+          sms
+        </button>
+        <button
+          type="button"
+          onClick={() => { setMode("email"); setError(""); }}
+          className={`px-4 py-1.5 rounded-full transition ${
+            mode === "email"
+              ? "bg-[#9b1c1c] text-[#f8df8e]"
+              : "text-stone-500 hover:text-[#9b1c1c]"
+          }`}
+        >
+          email
+        </button>
+      </div>
+
       <div className="flex rounded-full border border-[#d4af37]/50 bg-white/90 p-1 shadow-sm backdrop-blur">
-        <input
-          value={phone}
-          onChange={(e) => setPhone(formatPhone(e.target.value))}
-          placeholder="(555) 123-4567"
-          inputMode="tel"
-          className="min-w-0 flex-1 rounded-full bg-transparent px-5 py-3 text-sm outline-none"
-        />
+        {mode === "sms" ? (
+          <input
+            value={phone}
+            onChange={(e) => setPhone(formatPhone(e.target.value))}
+            placeholder="(555) 123-4567"
+            inputMode="tel"
+            className="min-w-0 flex-1 rounded-full bg-transparent px-5 py-3 text-sm outline-none"
+          />
+        ) : (
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@somewhere.com"
+            inputMode="email"
+            type="email"
+            className="min-w-0 flex-1 rounded-full bg-transparent px-5 py-3 text-sm outline-none"
+          />
+        )}
         <button className="rounded-full bg-[#9b1c1c] px-5 py-3 text-sm font-medium text-[#f8df8e] transition hover:bg-[#7a1515]">
           join
         </button>
       </div>
+
       {error ? (
         <p className="text-xs text-[#9b1c1c]">{error}</p>
-      ) : (
+      ) : mode === "sms" ? (
         <p className="px-2 text-[11px] leading-5 text-stone-500">
           by tapping join, you agree to receive sms from yuanfen for onboarding
           and match alerts. msg &amp; data rates may apply. ~1–10 msgs/week.
+          consent not required to use the site — prefer email? switch above.
           reply <strong>STOP</strong> to opt out, <strong>HELP</strong> for
           help.{" "}
+          <a href="/privacy" className="underline hover:text-[#9b1c1c]">
+            privacy
+          </a>{" "}
+          ·{" "}
+          <a href="/terms" className="underline hover:text-[#9b1c1c]">
+            terms
+          </a>
+        </p>
+      ) : (
+        <p className="px-2 text-[11px] leading-5 text-stone-500">
+          email-only waitlist. no sms will be sent. we&apos;ll email you when
+          access opens in your city.{" "}
           <a href="/privacy" className="underline hover:text-[#9b1c1c]">
             privacy
           </a>{" "}
@@ -153,9 +217,8 @@ function FloatingPhone() {
           <div className="mt-5 rounded-3xl bg-white p-5 text-sm leading-6 shadow-sm ring-1 ring-[#d4af37]/20">
             <p className="text-stone-700">quick intro for you.</p>
             <p className="mt-4 text-xl font-semibold text-[#7a1f1f]">Anthony, 21</p>
-            <p className="text-[#b8860b]">91% match</p>
-            <p className="mt-4 text-stone-600">
-              both of you enjoy running, raving, and planning weekend trips ahead of time.
+            <p className="text-stone-600 mt-2">
+              you share a similar emotional register and a curiosity about the same things.
             </p>
             <p className="mt-4 font-medium text-[#7a1f1f]">reply YES to connect · NO to skip</p>
           </div>
@@ -175,13 +238,6 @@ function FloatingPhone() {
             </motion.div>
           )}
         </div>
-      </motion.div>
-      <motion.div
-        animate={{ scale: [1, 1.08, 1] }}
-        transition={{ duration: 3, repeat: Infinity }}
-        className="absolute -right-6 -top-6 rounded-full border border-[#d4af37]/50 bg-[#fff2bd] px-5 py-3 text-sm font-medium text-[#7a1f1f] shadow-lg"
-      >
-        93%
       </motion.div>
     </motion.div>
   );
@@ -398,7 +454,7 @@ export default function App() {
           className="mx-auto max-w-xl rounded-[3rem] border border-[#d4af37]/30 bg-white/60 p-8"
         >
           <h2 className="text-4xl font-semibold tracking-[-0.05em] text-[#7a1f1f]">be first to know.</h2>
-          <p className="mt-3 text-sm text-stone-600">we&apos;ll text you when yuanfen opens.</p>
+          <p className="mt-3 text-sm text-stone-600">we&apos;ll text or email you when yuanfen opens.</p>
           <div className="mt-7">
             <WaitlistForm />
           </div>
