@@ -227,8 +227,7 @@ function MessageStack() {
 }
 
 // ==========================================================================
-// PORTAL SECTION — scroll dives INTO the phone, conversation plays
-// full-screen, then you pull back out
+// PORTAL SECTION — native scroll listener, state-driven. Cannot go blank.
 // ==========================================================================
 
 const portalConversation: Msg[] = [
@@ -244,183 +243,193 @@ const portalConversation: Msg[] = [
 
 function PortalSection() {
   const ref = useRef<HTMLDivElement>(null);
-  const scroll = useScroll({
-    target: ref,
-    offset: ["start start", "end end"],
-  });
-  const p = scroll.scrollYProgress;
-
-  // ---- Phase timings across total progress (0 → 1) ----
-  // 0.00 – 0.30 : dive in (phone scales up until screen fills viewport)
-  // 0.30 – 0.85 : inside — conversation plays, message by message
-  // 0.85 – 1.00 : pull back out
-
-  // Phone shell scale: 1 → 6 (frame flies past edges), then holds
-  const phoneScale = useTransform(p, [0, 0.3, 0.85, 1], [1, 6, 6, 1]);
-  // The shell (frame, notch, header) fades away as we pass "through" the glass
-  const shellOpacity = useTransform(p, [0.18, 0.3, 0.85, 0.95], [1, 0, 0, 1]);
-  // Intro caption above the phone
-  const captionOpacity = useTransform(p, [0, 0.12, 0.22], [1, 1, 0]);
-  const captionY = useTransform(p, [0, 0.22], [0, -60]);
-  // Full-screen conversation fades in once we're inside
-  const convOpacity = useTransform(p, [0.28, 0.34, 0.82, 0.88], [0, 1, 1, 0]);
-  const convScale = useTransform(p, [0.28, 0.34], [1.06, 1]);
-  // Exit caption
-  const outroOpacity = useTransform(p, [0.88, 0.96], [0, 1]);
-  // Wine glow intensifies inside
-  const glowOpacity = useTransform(p, [0.25, 0.4], [0, 1]);
-
-  // How many messages visible — driven by scroll position inside the portal
-  const [visibleCount, setVisibleCount] = useState(0);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const unsub = p.on("change", (v: number) => {
-      if (v < 0.32) {
-        setVisibleCount(0);
-        return;
-      }
-      if (v > 0.85) {
-        setVisibleCount(portalConversation.length);
-        return;
-      }
-      // Map 0.32 → 0.82 onto 1 → N messages
-      const t = (v - 0.32) / (0.82 - 0.32);
-      const count = Math.max(1, Math.min(portalConversation.length, Math.ceil(t * portalConversation.length)));
-      setVisibleCount(count);
-    });
-    return () => unsub();
-  }, [p]);
+    const update = () => {
+      const el = ref.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const total = el.offsetHeight - window.innerHeight;
+      if (total <= 0) return;
+      const p = Math.min(1, Math.max(0, -rect.top / total));
+      setProgress(p);
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // Phases:
+  // 0.00–0.30 dive in | 0.30–0.85 inside | 0.85–1.00 pull out
+  const diveT = Math.min(1, progress / 0.3); // 0→1 during dive
+  const inside = progress >= 0.28 && progress <= 0.87;
+  const outro = progress > 0.87;
+
+  // Phone scale 1 → 6 during dive, 6 → 1 during exit
+  let phoneScale = 1;
+  if (progress < 0.3) phoneScale = 1 + diveT * 5;
+  else if (progress > 0.85) phoneScale = 6 - ((progress - 0.85) / 0.15) * 5;
+  else phoneScale = 6;
+
+  // Shell fades out as we pass through the glass
+  let shellOpacity = 1;
+  if (progress > 0.18 && progress < 0.3) shellOpacity = 1 - (progress - 0.18) / 0.12;
+  else if (progress >= 0.3 && progress <= 0.85) shellOpacity = 0;
+  else if (progress > 0.85) shellOpacity = Math.min(1, (progress - 0.85) / 0.1);
+
+  const captionOpacity = progress < 0.22 ? 1 - progress / 0.22 : 0;
+
+  // Messages driven by progress inside the portal
+  let visibleCount = 0;
+  if (progress >= 0.32 && progress <= 0.85) {
+    const t = (progress - 0.32) / (0.82 - 0.32);
+    visibleCount = Math.max(
+      1,
+      Math.min(portalConversation.length, Math.ceil(t * portalConversation.length))
+    );
+  } else if (progress > 0.85) {
+    visibleCount = portalConversation.length;
+  }
 
   return (
-    <section
-      ref={ref}
-      className="relative bg-[#0a0807]"
-      style={{ height: "400vh" }}
-    >
-      <div className="sticky top-0 h-screen w-full overflow-hidden flex items-center justify-center">
-        {/* wine glow that swells when you're inside */}
-        <motion.div
-          style={{ opacity: glowOpacity }}
-          className="absolute inset-0 pointer-events-none"
-        >
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] rounded-full bg-[#a82626]/[0.07] blur-3xl" />
-        </motion.div>
+    <section ref={ref} className="relative bg-[#0a0807]" style={{ height: "400vh" }}>
+      <div className="sticky top-0 h-screen w-full overflow-hidden">
+        {/* LAYER 1: dive — phone scaling up */}
+        {!inside && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            {/* intro caption */}
+            {!outro && (
+              <div
+                style={{ opacity: captionOpacity }}
+                className="absolute top-[10vh] left-0 right-0 text-center px-5 z-30 pointer-events-none"
+              >
+                <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-3">
+                  step inside
+                </p>
+                <h3 className="text-3xl md:text-5xl font-medium tracking-tight leading-[1.05]">
+                  keep scrolling —{" "}
+                  <span className="italic text-[#a82626]">
+                    see what texting mei feels like.
+                  </span>
+                </h3>
+              </div>
+            )}
+            {/* outro caption */}
+            {outro && (
+              <div className="absolute bottom-[10vh] left-0 right-0 text-center px-5 z-30 pointer-events-none">
+                <p className="text-2xl md:text-4xl font-medium tracking-tight">
+                  that's the whole app.{" "}
+                  <span className="italic text-[#d4af37]">that's the point.</span>
+                </p>
+              </div>
+            )}
+            {/* the phone */}
+            <div
+              style={{
+                transform: "scale(" + phoneScale + ")",
+                opacity: shellOpacity,
+              }}
+              className="relative z-10 will-change-transform"
+            >
+              <div className="relative w-[280px] rounded-[36px] border border-[#d4af37]/15 bg-[#0d0a08] shadow-2xl shadow-black/50 overflow-hidden">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 rounded-b-2xl bg-black z-10" />
+                <div className="px-5 pt-3 pb-2 flex justify-between text-[10px] text-[#f4ede0]/70 font-medium">
+                  <span>9:41</span>
+                  <span>5G</span>
+                </div>
+                <div className="px-4 pt-2 pb-3 border-b border-[#1f1a16] flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-[10px]">
+                    M
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium leading-tight">mei</p>
+                    <p className="text-[10px] text-[#d4af37]/60 leading-tight">
+                      active now
+                    </p>
+                  </div>
+                </div>
+                <div className="px-3 py-4 min-h-[320px] flex items-center justify-center">
+                  <p className="text-[13px] text-[#f4ede0]/40 text-center px-6">
+                    good news — i found someone.
+                  </p>
+                </div>
+                <div className="px-3 py-3 border-t border-[#1f1a16]">
+                  <div className="rounded-full bg-[#1f1a16] px-4 py-2 text-[11px] text-[#f4ede0]/40">
+                    Message mei...
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {/* intro caption — floats above phone, fades as you dive */}
-        <motion.div
-          style={{ opacity: captionOpacity, y: captionY }}
-          className="absolute top-[12vh] left-0 right-0 text-center px-5 z-30 pointer-events-none"
-        >
-          <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-3">
-            step inside
-          </p>
-          <h3 className="text-3xl md:text-5xl font-medium tracking-tight leading-[1.05]">
-            keep scrolling —{" "}
-            <span className="italic text-[#a82626]">see what texting mei feels like.</span>
-          </h3>
-        </motion.div>
-
-        {/* THE PHONE — scales up until you're through the glass */}
-        <motion.div
-          style={{ scale: phoneScale }}
-          className="relative z-10 will-change-transform"
-        >
+        {/* LAYER 2: inside — full-screen conversation */}
+        {inside && (
           <motion.div
-            style={{ opacity: shellOpacity }}
-            className="relative w-[280px] rounded-[36px] border border-[#d4af37]/15 bg-[#0d0a08] shadow-2xl shadow-black/50 overflow-hidden"
+            key="inside"
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4, ease: EASE }}
+            className="absolute inset-0 z-20 flex flex-col bg-[#0a0807]"
           >
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 rounded-b-2xl bg-black z-10" />
-            <div className="px-5 pt-3 pb-2 flex justify-between text-[10px] text-[#f4ede0]/70 font-medium">
-              <span>9:41</span>
-              <span>5G</span>
-            </div>
-            <div className="px-4 pt-2 pb-3 border-b border-[#1f1a16] flex items-center gap-3">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-[10px]">
-                M
+            {/* wine glow */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] rounded-full bg-[#a82626]/[0.07] blur-3xl pointer-events-none" />
+
+            {/* chat header */}
+            <div className="relative pt-12 pb-4 px-6 border-b border-[#1f1a16] bg-[#0a0807]/90 backdrop-blur">
+              <div className="mx-auto max-w-lg flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-sm">
+                  M
+                </div>
+                <div>
+                  <p className="text-base font-medium leading-tight">mei</p>
+                  <p className="text-xs text-[#d4af37]/60 leading-tight">active now</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium leading-tight">mei</p>
-                <p className="text-[10px] text-[#d4af37]/60 leading-tight">active now</p>
+            </div>
+
+            {/* messages */}
+            <div className="relative flex-1 overflow-hidden px-6 py-6">
+              <div className="mx-auto max-w-lg space-y-3">
+                {portalConversation.slice(0, visibleCount).map((msg, idx) => {
+                  const isMei = msg.from === "mei";
+                  return (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, y: 18, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.4, ease: EASE }}
+                      className={"flex " + (isMei ? "justify-start" : "justify-end")}
+                    >
+                      <div
+                        className={
+                          "max-w-[80%] rounded-3xl px-5 py-3.5 text-[15px] md:text-[17px] leading-snug " +
+                          (isMei
+                            ? "bg-[#1f1a16] text-[#f4ede0] border border-[#d4af37]/10 rounded-bl-lg"
+                            : "bg-[#a82626] text-[#f4ede0] rounded-br-lg")
+                        }
+                      >
+                        {msg.text}
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
-            <div className="px-3 py-4 min-h-[380px] flex items-center justify-center">
-              <p className="text-[13px] text-[#f4ede0]/40 text-center px-6">
-                good news — i found someone.
-              </p>
-            </div>
-            <div className="px-3 py-3 border-t border-[#1f1a16]">
-              <div className="rounded-full bg-[#1f1a16] px-4 py-2 text-[11px] text-[#f4ede0]/40">
+
+            {/* input bar */}
+            <div className="relative px-6 pb-10">
+              <div className="mx-auto max-w-lg rounded-full bg-[#1f1a16] px-5 py-3.5 text-sm text-[#f4ede0]/40">
                 Message mei...
               </div>
             </div>
           </motion.div>
-        </motion.div>
-
-        {/* INSIDE — full-screen conversation driven by scroll */}
-        <motion.div
-          style={{ opacity: convOpacity, scale: convScale }}
-          className="absolute inset-0 z-20 flex flex-col"
-        >
-          {/* full-screen chat header */}
-          <div className="pt-14 pb-4 px-6 md:px-0 border-b border-[#1f1a16] bg-[#0a0807]/90 backdrop-blur">
-            <div className="mx-auto max-w-lg flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-sm">
-                M
-              </div>
-              <div>
-                <p className="text-base font-medium leading-tight">mei</p>
-                <p className="text-xs text-[#d4af37]/60 leading-tight">active now</p>
-              </div>
-            </div>
-          </div>
-
-          {/* messages */}
-          <div className="flex-1 overflow-hidden px-6 md:px-0 py-6">
-            <div className="mx-auto max-w-lg space-y-3">
-              {portalConversation.slice(0, visibleCount).map((msg, idx) => {
-                const isMei = msg.from === "mei";
-                return (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, y: 18, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.45, ease: EASE }}
-                    className={"flex " + (isMei ? "justify-start" : "justify-end")}
-                  >
-                    <div
-                      className={
-                        "max-w-[80%] rounded-3xl px-5 py-3.5 text-[15px] md:text-[17px] leading-snug " +
-                        (isMei
-                          ? "bg-[#1f1a16] text-[#f4ede0] border border-[#d4af37]/10 rounded-bl-lg"
-                          : "bg-[#a82626] text-[#f4ede0] rounded-br-lg")
-                      }
-                    >
-                      {msg.text}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* input bar */}
-          <div className="px-6 md:px-0 pb-10">
-            <div className="mx-auto max-w-lg rounded-full bg-[#1f1a16] px-5 py-3.5 text-sm text-[#f4ede0]/40">
-              Message mei...
-            </div>
-          </div>
-        </motion.div>
-
-        {/* outro caption as you pull back out */}
-        <motion.div
-          style={{ opacity: outroOpacity }}
-          className="absolute bottom-[12vh] left-0 right-0 text-center px-5 z-30 pointer-events-none"
-        >
-          <p className="text-2xl md:text-4xl font-medium tracking-tight">
-            that's the whole app.{" "}
-            <span className="italic text-[#d4af37]">that's the point.</span>
-          </p>
-        </motion.div>
+        )}
       </div>
     </section>
   );
