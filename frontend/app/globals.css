@@ -2,27 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
-}
-
-html {
+html, body {
+  background: #0a0807;
+  color: #f4ede0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "ss01", "ss02";
+  -webkit-font-smoothing: antialiased;
   scroll-behavior: smooth;
 }
 
-html, body {
-  background: #fffaf0;
-  color: #1c1917;
+/* Selection color */
+::selection {
+  background: #a82626;
+  color: #f4ede0;
 }
 
-body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
+/* Focus rings — gold */
 *:focus-visible {
-  outline: 2px solid #9b1c1c;
+  outline: 2px solid #d4af37;
   outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Subtle warm grain — gold + wine stippling */
+.grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(rgba(212, 175, 55, 0.035) 1px, transparent 1px),
+    radial-gradient(rgba(168, 38, 38, 0.025) 1px, transparent 1px);
+  background-size: 4px 4px, 7px 7px;
+  background-position: 0 0, 2px 2px;
+  z-index: 0;
+}
+
+/* Serif for accent characters */
+.font-serif {
+  font-family: "Cormorant Garamond", "Playfair Display", "Times New Roman", serif;
+  font-weight: 300;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Remove default details marker */
+details summary::-webkit-details-marker {
+  display: none;
+}
+details summary {
+  list-style: none;
 }
