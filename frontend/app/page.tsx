@@ -71,7 +71,7 @@ function RevealStagger(props: { children: ReactNode; className?: string }) {
 }
 
 // ==========================================================================
-// SELF-TYPING CHAT
+// SELF-TYPING CHAT (small phone mockup)
 // ==========================================================================
 
 type Msg = { from: "mei" | "user"; text: string };
@@ -227,114 +227,207 @@ function MessageStack() {
 }
 
 // ==========================================================================
-// STICKY PHONE — FIXED: 220vh height, bg color, w-full sticky child
+// PORTAL SECTION — scroll dives INTO the phone, conversation plays
+// full-screen, then you pull back out
 // ==========================================================================
 
-const stickyMessages: Msg[][] = [
-  [
-    { from: "mei", text: "good news — i found someone." },
-    { from: "mei", text: "want to see who?" },
-  ],
-  [
-    { from: "user", text: "tell me more about her values first" },
-    { from: "mei", text: "quiet. patient. reads late." },
-  ],
-  [
-    { from: "mei", text: "you both said yes." },
-    { from: "mei", text: "here's her number: (555) 123-4567" },
-  ],
+const portalConversation: Msg[] = [
+  { from: "mei", text: "good news — i found someone." },
+  { from: "user", text: "ok... tell me about them" },
+  { from: "mei", text: "quiet. patient. reads late. laughs easy." },
+  { from: "user", text: "what do they care about?" },
+  { from: "mei", text: "family. slow mornings. doing things well instead of fast." },
+  { from: "user", text: "ok. i'm interested." },
+  { from: "mei", text: "sent your intro. i'll let you know." },
+  { from: "mei", text: "...they said yes. here's their number 🎉" },
 ];
 
-const stickyCaptions = [
-  {
-    title: "an intro, not a match.",
-    body: "mei asks before sharing anyone. no infinite scroll — one person at a time.",
-  },
-  {
-    title: "ask before you say yes.",
-    body: "want to know their values, their communication style, how they spend a saturday? just ask her.",
-  },
-  {
-    title: "when it's mutual, it's real.",
-    body: "no swiping, no ghosting mechanics. a real phone number and a real name.",
-  },
-];
-
-function StickyPhoneSection() {
+function PortalSection() {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = useScroll({
     target: ref,
     offset: ["start start", "end end"],
   });
-  const scrollYProgress = scroll.scrollYProgress;
-  const [phase, setPhase] = useState(0);
+  const p = scroll.scrollYProgress;
+
+  // ---- Phase timings across total progress (0 → 1) ----
+  // 0.00 – 0.30 : dive in (phone scales up until screen fills viewport)
+  // 0.30 – 0.85 : inside — conversation plays, message by message
+  // 0.85 – 1.00 : pull back out
+
+  // Phone shell scale: 1 → 6 (frame flies past edges), then holds
+  const phoneScale = useTransform(p, [0, 0.3, 0.85, 1], [1, 6, 6, 1]);
+  // The shell (frame, notch, header) fades away as we pass "through" the glass
+  const shellOpacity = useTransform(p, [0.18, 0.3, 0.85, 0.95], [1, 0, 0, 1]);
+  // Intro caption above the phone
+  const captionOpacity = useTransform(p, [0, 0.12, 0.22], [1, 1, 0]);
+  const captionY = useTransform(p, [0, 0.22], [0, -60]);
+  // Full-screen conversation fades in once we're inside
+  const convOpacity = useTransform(p, [0.28, 0.34, 0.82, 0.88], [0, 1, 1, 0]);
+  const convScale = useTransform(p, [0.28, 0.34], [1.06, 1]);
+  // Exit caption
+  const outroOpacity = useTransform(p, [0.88, 0.96], [0, 1]);
+  // Wine glow intensifies inside
+  const glowOpacity = useTransform(p, [0.25, 0.4], [0, 1]);
+
+  // How many messages visible — driven by scroll position inside the portal
+  const [visibleCount, setVisibleCount] = useState(0);
 
   useEffect(() => {
-    const unsub = scrollYProgress.on("change", (v: number) => {
-      if (v < 0.33) setPhase(0);
-      else if (v < 0.66) setPhase(1);
-      else setPhase(2);
+    const unsub = p.on("change", (v: number) => {
+      if (v < 0.32) {
+        setVisibleCount(0);
+        return;
+      }
+      if (v > 0.85) {
+        setVisibleCount(portalConversation.length);
+        return;
+      }
+      // Map 0.32 → 0.82 onto 1 → N messages
+      const t = (v - 0.32) / (0.82 - 0.32);
+      const count = Math.max(1, Math.min(portalConversation.length, Math.ceil(t * portalConversation.length)));
+      setVisibleCount(count);
     });
     return () => unsub();
-  }, [scrollYProgress]);
+  }, [p]);
 
   return (
-    <section ref={ref} className="relative bg-[#0a0807]" style={{ height: "220vh" }}>
-      <div className="sticky top-0 h-screen w-full flex items-center px-5 md:px-10 overflow-hidden">
-        <div className="mx-auto w-full max-w-6xl grid md:grid-cols-2 gap-10 items-center">
-          <div className="relative min-h-[220px]">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={phase}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.55, ease: EASE }}
-              >
-                <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-4">
-                  phase {phase + 1} of 3
-                </p>
-                <h3 className="text-3xl md:text-5xl font-medium leading-[1.05] tracking-tight mb-5">
-                  {stickyCaptions[phase].title}
-                </h3>
-                <p className="text-lg text-[#f4ede0]/70 max-w-md leading-relaxed">
-                  {stickyCaptions[phase].body}
-                </p>
-              </motion.div>
-            </AnimatePresence>
-            <div className="mt-10 flex gap-2">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className={
-                    "h-1 rounded-full transition-all duration-500 " +
-                    (i === phase ? "w-10 bg-[#a82626]" : "w-6 bg-[#f4ede0]/15")
-                  }
-                />
-              ))}
+    <section
+      ref={ref}
+      className="relative bg-[#0a0807]"
+      style={{ height: "400vh" }}
+    >
+      <div className="sticky top-0 h-screen w-full overflow-hidden flex items-center justify-center">
+        {/* wine glow that swells when you're inside */}
+        <motion.div
+          style={{ opacity: glowOpacity }}
+          className="absolute inset-0 pointer-events-none"
+        >
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] rounded-full bg-[#a82626]/[0.07] blur-3xl" />
+        </motion.div>
+
+        {/* intro caption — floats above phone, fades as you dive */}
+        <motion.div
+          style={{ opacity: captionOpacity, y: captionY }}
+          className="absolute top-[12vh] left-0 right-0 text-center px-5 z-30 pointer-events-none"
+        >
+          <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-3">
+            step inside
+          </p>
+          <h3 className="text-3xl md:text-5xl font-medium tracking-tight leading-[1.05]">
+            keep scrolling —{" "}
+            <span className="italic text-[#a82626]">see what texting mei feels like.</span>
+          </h3>
+        </motion.div>
+
+        {/* THE PHONE — scales up until you're through the glass */}
+        <motion.div
+          style={{ scale: phoneScale }}
+          className="relative z-10 will-change-transform"
+        >
+          <motion.div
+            style={{ opacity: shellOpacity }}
+            className="relative w-[280px] rounded-[36px] border border-[#d4af37]/15 bg-[#0d0a08] shadow-2xl shadow-black/50 overflow-hidden"
+          >
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 rounded-b-2xl bg-black z-10" />
+            <div className="px-5 pt-3 pb-2 flex justify-between text-[10px] text-[#f4ede0]/70 font-medium">
+              <span>9:41</span>
+              <span>5G</span>
+            </div>
+            <div className="px-4 pt-2 pb-3 border-b border-[#1f1a16] flex items-center gap-3">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-[10px]">
+                M
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium leading-tight">mei</p>
+                <p className="text-[10px] text-[#d4af37]/60 leading-tight">active now</p>
+              </div>
+            </div>
+            <div className="px-3 py-4 min-h-[380px] flex items-center justify-center">
+              <p className="text-[13px] text-[#f4ede0]/40 text-center px-6">
+                good news — i found someone.
+              </p>
+            </div>
+            <div className="px-3 py-3 border-t border-[#1f1a16]">
+              <div className="rounded-full bg-[#1f1a16] px-4 py-2 text-[11px] text-[#f4ede0]/40">
+                Message mei...
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+
+        {/* INSIDE — full-screen conversation driven by scroll */}
+        <motion.div
+          style={{ opacity: convOpacity, scale: convScale }}
+          className="absolute inset-0 z-20 flex flex-col"
+        >
+          {/* full-screen chat header */}
+          <div className="pt-14 pb-4 px-6 md:px-0 border-b border-[#1f1a16] bg-[#0a0807]/90 backdrop-blur">
+            <div className="mx-auto max-w-lg flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-sm">
+                M
+              </div>
+              <div>
+                <p className="text-base font-medium leading-tight">mei</p>
+                <p className="text-xs text-[#d4af37]/60 leading-tight">active now</p>
+              </div>
             </div>
           </div>
-          <div className="flex justify-center">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={phase}
-                initial={{ opacity: 0, y: 30, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -20, scale: 0.97 }}
-                transition={{ duration: 0.6, ease: EASE }}
-              >
-                <ChatMockup messages={stickyMessages[phase]} loop={true} />
-              </motion.div>
-            </AnimatePresence>
+
+          {/* messages */}
+          <div className="flex-1 overflow-hidden px-6 md:px-0 py-6">
+            <div className="mx-auto max-w-lg space-y-3">
+              {portalConversation.slice(0, visibleCount).map((msg, idx) => {
+                const isMei = msg.from === "mei";
+                return (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, y: 18, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.45, ease: EASE }}
+                    className={"flex " + (isMei ? "justify-start" : "justify-end")}
+                  >
+                    <div
+                      className={
+                        "max-w-[80%] rounded-3xl px-5 py-3.5 text-[15px] md:text-[17px] leading-snug " +
+                        (isMei
+                          ? "bg-[#1f1a16] text-[#f4ede0] border border-[#d4af37]/10 rounded-bl-lg"
+                          : "bg-[#a82626] text-[#f4ede0] rounded-br-lg")
+                      }
+                    >
+                      {msg.text}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+
+          {/* input bar */}
+          <div className="px-6 md:px-0 pb-10">
+            <div className="mx-auto max-w-lg rounded-full bg-[#1f1a16] px-5 py-3.5 text-sm text-[#f4ede0]/40">
+              Message mei...
+            </div>
+          </div>
+        </motion.div>
+
+        {/* outro caption as you pull back out */}
+        <motion.div
+          style={{ opacity: outroOpacity }}
+          className="absolute bottom-[12vh] left-0 right-0 text-center px-5 z-30 pointer-events-none"
+        >
+          <p className="text-2xl md:text-4xl font-medium tracking-tight">
+            that's the whole app.{" "}
+            <span className="italic text-[#d4af37]">that's the point.</span>
+          </p>
+        </motion.div>
       </div>
     </section>
   );
 }
 
 // ==========================================================================
-// WAITLIST FORM
+// WAITLIST FORM — SMS/email toggle preserved for Twilio compliance
 // ==========================================================================
 
 function WaitlistForm() {
@@ -568,18 +661,8 @@ export default function Page() {
         </div>
       </section>
 
-      <section className="min-h-[50vh] flex items-center justify-center px-5">
-        <RevealStagger className="max-w-4xl">
-          <motion.p variants={staggerChild} className="text-3xl md:text-5xl font-medium leading-[1.1] tracking-tight text-center">
-            a simple chat.
-          </motion.p>
-          <motion.p variants={staggerChild} className="text-3xl md:text-5xl font-medium leading-[1.1] tracking-tight text-center italic text-[#d4af37]">
-            over a real understanding of you.
-          </motion.p>
-        </RevealStagger>
-      </section>
-
-      <StickyPhoneSection />
+      {/* PORTAL — dive into the phone */}
+      <PortalSection />
 
       <section id="why" className="px-5 py-24">
         <div className="mx-auto max-w-4xl text-center">
