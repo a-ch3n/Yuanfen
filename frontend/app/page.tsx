@@ -227,7 +227,7 @@ function MessageStack() {
 }
 
 // ==========================================================================
-// STICKY PHONE
+// STICKY PHONE — FIXED: 220vh height, bg color, w-full sticky child
 // ==========================================================================
 
 const stickyMessages: Msg[][] = [
@@ -279,8 +279,8 @@ function StickyPhoneSection() {
   }, [scrollYProgress]);
 
   return (
-    <section ref={ref} className="relative" style={{ height: "260vh" }}>
-      <div className="sticky top-0 h-screen flex items-center px-5 md:px-10">
+    <section ref={ref} className="relative bg-[#0a0807]" style={{ height: "220vh" }}>
+      <div className="sticky top-0 h-screen w-full flex items-center px-5 md:px-10 overflow-hidden">
         <div className="mx-auto w-full max-w-6xl grid md:grid-cols-2 gap-10 items-center">
           <div className="relative min-h-[220px]">
             <AnimatePresence mode="wait">
