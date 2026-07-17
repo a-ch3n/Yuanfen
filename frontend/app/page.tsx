@@ -560,8 +560,8 @@ export default function Page() {
   const heroTextOpacity = useTransform(scrollY, [0, 500], [1, 0.3]);
 
   return (
-    <main className="grain min-h-screen bg-[#0a0807] text-[#f4ede0] overflow-x-hidden">
-      <motion.div
+  <main className="grain min-h-screen bg-[#0a0807] text-[#f4ede0]">
+  <motion.div
         style={{ scaleX: progressBar }}
         className="fixed left-0 top-0 z-[100] h-[2px] w-full origin-left bg-gradient-to-r from-[#d4af37] via-[#c46060] to-[#a82626]"
       />
