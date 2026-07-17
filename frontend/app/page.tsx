@@ -8,9 +8,8 @@ import {
   useInView,
   useSpring,
   AnimatePresence,
-  Variants,
 } from "framer-motion";
-
+import type { Variants } from "framer-motion";
 // ==========================================================================
 // PALETTE — gold + wine on dark. Wine (#a82626) is a co-primary accent.
 // ==========================================================================
@@ -33,8 +32,7 @@ const API_URL =
 // ==========================================================================
 
 // Standard Inyo-style ease: firm start, soft finish
-const EASE = [0.16, 1, 0.3, 1] as const;
-
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 function Reveal({
   children,
   delay = 0,
@@ -311,8 +309,8 @@ function StickyPhoneSection() {
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {
-    const unsub = scrollYProgress.on("change", (v) => {
-      if (v < 0.33) setPhase(0);
+  const unsub = scrollYProgress.on("change", (v: number) => {
+  if (v < 0.33) setPhase(0);
       else if (v < 0.66) setPhase(1);
       else setPhase(2);
     });
