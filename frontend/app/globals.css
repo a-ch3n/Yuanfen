@@ -62,3 +62,7 @@ details summary::-webkit-details-marker {
 details summary {
   list-style: none;
 }
+
+html, body {
+  overflow-x: clip;
+}
