@@ -1,475 +1,800 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { useEffect, useRef, useState, ReactNode } from "react";
+import {
+  motion,
+  useScroll,
+  useTransform,
+  useInView,
+  useSpring,
+  AnimatePresence,
+  Variants,
+} from "framer-motion";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+// ==========================================================================
+// PALETTE — gold + wine on dark. Wine (#a82626) is a co-primary accent.
+// ==========================================================================
+// bg          #0a0807
+// card        #1a1410
+// border      #1f1a16
+// cream text  #f4ede0
+// gold        #d4af37
+// gold light  #e6c25f
+// gold muted  #a07426
+// wine        #a82626
+// wine hover  #8a1a1a
+// wine soft   #c46060
 
-function digitsOnly(value: string) {
-  return value.replace(/[^0-9]/g, "");
-}
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://yuanfen-production-28a5.up.railway.app";
 
-function formatPhone(value: string) {
-  const digits = digitsOnly(value).slice(0, 10);
-  const area = digits.slice(0, 3);
-  const mid = digits.slice(3, 6);
-  const last = digits.slice(6, 10);
-  if (digits.length > 6) return `(${area}) ${mid}-${last}`;
-  if (digits.length > 3) return `(${area}) ${mid}`;
-  if (digits.length > 0) return `(${area}`;
-  return "";
-}
+// ==========================================================================
+// MOTION PRIMITIVES
+// ==========================================================================
 
-function isValidUsPhone(phone: string) {
-  return digitsOnly(phone).length === 10;
-}
+// Standard Inyo-style ease: firm start, soft finish
+const EASE = [0.16, 1, 0.3, 1] as const;
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-}
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 36 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.65, ease: "easeOut" as const } },
-};
-
-const faqs: [string, string][] = [
-  ["is this free?", "Joining the waitlist is free. Early users get access first."],
-  ["do i need an app?", "No. yuanfen works through SMS."],
-  ["can i join without giving my phone number?", "Yes. You can join the email-only waitlist by entering your email above. You'll be notified when we open access in your city — no SMS required."],
-  ["is it private?", "Yes. Your profile is never public. Your phone number is never shared with third parties."],
-  ["where is this available?", "US numbers only for now."],
-];
-
-const steps: [string, string, string][] = [
-  ["01", "answer honestly", "share your values, timing, lifestyle, and what actually matters."],
-  ["02", "we look for yuanfen", "the system searches for natural affinity instead of endless options."],
-  ["03", "one text arrives", "one person, one reason, one question: yes or no?"],
-];
-
-const quotes = [
-  "i just want someone who can hold a real conversation.",
-  "less swiping, more intention.",
-  "one thoughtful intro feels better than fifty random matches.",
-  "dating should feel human again.",
-];
-
-function WaitlistForm() {
-  const [mode, setMode] = useState<"sms" | "email">("sms");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [joined, setJoined] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-
-    const body: { phone?: string; email?: string } = {};
-    if (mode === "sms") {
-      if (!isValidUsPhone(phone)) {
-        setError("enter a valid us phone number");
-        return;
-      }
-      body.phone = digitsOnly(phone);
-    } else {
-      if (!isValidEmail(email)) {
-        setError("enter a valid email");
-        return;
-      }
-      body.email = email.trim();
-    }
-
-    try {
-      const res = await fetch(`${API}/waitlist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        setJoined(true);
-      } else {
-        setError("something went wrong");
-      }
-    } catch {
-      setError("backend not running");
-    }
-  }
-
-  if (joined) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="rounded-full border border-[#d4af37]/40 bg-[#fff2bd] px-6 py-4 text-center text-sm font-medium text-[#7a1f1f]"
-      >
-        you&apos;re on the list.
-      </motion.div>
-    );
-  }
-
-  return (
-    <form onSubmit={submit} className="space-y-3">
-      {/* Mode toggle */}
-      <div className="flex justify-center gap-1 mb-2 text-xs">
-        <button
-          type="button"
-          onClick={() => { setMode("sms"); setError(""); }}
-          className={`px-4 py-1.5 rounded-full transition ${
-            mode === "sms"
-              ? "bg-[#9b1c1c] text-[#f8df8e]"
-              : "text-stone-500 hover:text-[#9b1c1c]"
-          }`}
-        >
-          sms
-        </button>
-        <button
-          type="button"
-          onClick={() => { setMode("email"); setError(""); }}
-          className={`px-4 py-1.5 rounded-full transition ${
-            mode === "email"
-              ? "bg-[#9b1c1c] text-[#f8df8e]"
-              : "text-stone-500 hover:text-[#9b1c1c]"
-          }`}
-        >
-          email
-        </button>
-      </div>
-
-      <div className="flex rounded-full border border-[#d4af37]/50 bg-white/90 p-1 shadow-sm backdrop-blur">
-        {mode === "sms" ? (
-          <input
-            value={phone}
-            onChange={(e) => setPhone(formatPhone(e.target.value))}
-            placeholder="(555) 123-4567"
-            inputMode="tel"
-            className="min-w-0 flex-1 rounded-full bg-transparent px-5 py-3 text-sm outline-none"
-          />
-        ) : (
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@somewhere.com"
-            inputMode="email"
-            type="email"
-            className="min-w-0 flex-1 rounded-full bg-transparent px-5 py-3 text-sm outline-none"
-          />
-        )}
-        <button className="rounded-full bg-[#9b1c1c] px-5 py-3 text-sm font-medium text-[#f8df8e] transition hover:bg-[#7a1515]">
-          join
-        </button>
-      </div>
-
-      {error ? (
-        <p className="text-xs text-[#9b1c1c]">{error}</p>
-      ) : mode === "sms" ? (
-        <p className="px-2 text-[11px] leading-5 text-stone-500">
-          by tapping join, you agree to receive sms from yuanfen for onboarding
-          and match alerts. msg &amp; data rates may apply. ~1–10 msgs/week.
-          consent not required to use the site — prefer email? switch above.
-          reply <strong>STOP</strong> to opt out, <strong>HELP</strong> for
-          help.{" "}
-          <a href="/privacy" className="underline hover:text-[#9b1c1c]">
-            privacy
-          </a>{" "}
-          ·{" "}
-          <a href="/terms" className="underline hover:text-[#9b1c1c]">
-            terms
-          </a>
-        </p>
-      ) : (
-        <p className="px-2 text-[11px] leading-5 text-stone-500">
-          email-only waitlist. no sms will be sent. we&apos;ll email you when
-          access opens in your city.{" "}
-          <a href="/privacy" className="underline hover:text-[#9b1c1c]">
-            privacy
-          </a>{" "}
-          ·{" "}
-          <a href="/terms" className="underline hover:text-[#9b1c1c]">
-            terms
-          </a>
-        </p>
-      )}
-    </form>
-  );
-}
-
-function FloatingPhone() {
-  const [connected, setConnected] = useState(false);
-
+function Reveal({
+  children,
+  delay = 0,
+  y = 40,
+  className = "",
+}: {
+  children: ReactNode;
+  delay?: number;
+  y?: number;
+  className?: string;
+}) {
   return (
     <motion.div
-      initial={{ opacity: 0, rotate: 6, y: 30 }}
-      animate={{ opacity: 1, rotate: -2, y: 0 }}
-      transition={{ duration: 0.8, ease: "easeOut" }}
-      className="relative mx-auto w-full max-w-[330px]"
+      initial={{ opacity: 0, y }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.9, delay, ease: EASE }}
+      className={className}
     >
-      <motion.div
-        animate={{ y: [0, -10, 0] }}
-        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        className="rounded-[2.5rem] border border-[#d4af37]/50 bg-[#240808] p-3 shadow-2xl"
-      >
-        <div className="rounded-[2rem] bg-[#fffaf0] p-5">
-          <div className="flex items-center justify-between border-b border-[#d4af37]/30 pb-4 text-xs">
-            <span className="font-semibold text-[#9b1c1c]">yuanfen</span>
-            <span className="text-stone-400">sms</span>
-          </div>
-          <div className="mt-5 rounded-3xl bg-white p-5 text-sm leading-6 shadow-sm ring-1 ring-[#d4af37]/20">
-            <p className="text-stone-700">quick intro for you.</p>
-            <p className="mt-4 text-xl font-semibold text-[#7a1f1f]">Anthony, 21</p>
-            <p className="text-stone-600 mt-2">
-              you share a similar emotional register and a curiosity about the same things.
-            </p>
-            <p className="mt-4 font-medium text-[#7a1f1f]">reply YES to connect · NO to skip</p>
-          </div>
-          <button
-            onClick={() => setConnected(true)}
-            className="ml-auto mt-4 block rounded-full bg-[#9b1c1c] px-5 py-2 text-sm text-[#f8df8e]"
-          >
-            YES
-          </button>
-          {connected && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-4 rounded-3xl bg-[#fff2bd] p-4 text-sm text-[#7a1f1f]"
-            >
-              connected. go say hi.
-            </motion.div>
-          )}
-        </div>
-      </motion.div>
+      {children}
     </motion.div>
   );
 }
 
-function StepRail() {
+const staggerParent: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
+};
+
+const staggerChild: Variants = {
+  hidden: { opacity: 0, y: 30 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.8, ease: EASE },
+  },
+};
+
+function RevealStagger({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="space-y-8">
-      {steps.map(([n, title, body], index) => (
-        <motion.div
-          key={n}
-          initial={{ opacity: 0, x: index % 2 === 0 ? -40 : 40 }}
-          whileInView={{ opacity: 1, x: 0 }}
-          viewport={{ once: true, amount: 0.35 }}
-          transition={{ duration: 0.6, delay: index * 0.12 }}
-          className="group grid gap-5 rounded-[2rem] border border-[#d4af37]/30 bg-white/60 p-6 text-center backdrop-blur md:grid-cols-[90px_1fr] md:text-left"
-        >
-          <div className="text-5xl font-semibold tracking-[-0.08em] text-[#d4af37] transition group-hover:scale-110">
-            {n}
+    <motion.div
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, margin: "-80px" }}
+      variants={staggerParent}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// ==========================================================================
+// SELF-TYPING CHAT — triggers on scroll into view
+// ==========================================================================
+
+type Msg = { from: "mei" | "user"; text: string };
+
+function ChatBubble({ msg }: { msg: Msg }) {
+  const isMei = msg.from === "mei";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.5, ease: EASE }}
+      className={`flex ${isMei ? "justify-start" : "justify-end"}`}
+    >
+      <div
+        className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-[13.5px] leading-snug ${
+          isMei
+            ? "bg-[#1f1a16] text-[#f4ede0] border border-[#d4af37]/10 rounded-bl-md"
+            : "bg-[#a82626] text-[#f4ede0] rounded-br-md"
+        }`}
+      >
+        {msg.text}
+      </div>
+    </motion.div>
+  );
+}
+
+function ChatMockup({
+  messages,
+  loop = false,
+}: {
+  messages: Msg[];
+  loop?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: !loop, margin: "-100px" });
+  const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    if (!inView) return;
+    setShown(0);
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      if (i > messages.length) {
+        if (loop) {
+          setTimeout(() => {
+            setShown(0);
+            i = 0;
+          }, 2400);
+          return;
+        }
+        clearInterval(iv);
+        return;
+      }
+      setShown(i);
+    }, 1100);
+    return () => clearInterval(iv);
+  }, [inView, messages, loop]);
+
+  return (
+    <div ref={ref} className="w-full flex justify-center">
+      {/* iPhone frame */}
+      <div className="relative w-[280px] rounded-[36px] border border-[#d4af37]/15 bg-[#0d0a08] shadow-2xl shadow-black/50 overflow-hidden">
+        {/* notch */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 rounded-b-2xl bg-black z-10" />
+        {/* status bar */}
+        <div className="px-5 pt-3 pb-2 flex justify-between text-[10px] text-[#f4ede0]/70 font-medium">
+          <span>9:41</span>
+          <span>••• 5G</span>
+        </div>
+        {/* header */}
+        <div className="px-4 pt-2 pb-3 border-b border-[#1f1a16] flex items-center gap-3">
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-[10px]">
+            M
           </div>
-          <div>
-            <h3 className="text-2xl font-semibold text-[#7a1f1f]">{title}</h3>
-            <p className="mt-2 text-sm leading-6 text-stone-600">{body}</p>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium leading-tight">mei</p>
+            <p className="text-[10px] text-[#d4af37]/60 leading-tight">active now</p>
           </div>
-        </motion.div>
-      ))}
+        </div>
+        {/* messages */}
+        <div className="px-3 py-4 space-y-2 min-h-[380px]">
+          <AnimatePresence>
+            {messages.slice(0, shown).map((msg, i) => (
+              <ChatBubble key={`${i}-${loop ? shown : "once"}`} msg={msg} />
+            ))}
+          </AnimatePresence>
+          {shown < messages.length && (
+            <motion.div
+              key="typing"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex justify-start pl-1"
+            >
+              <div className="flex gap-1 py-2 px-3 rounded-2xl bg-[#1f1a16]">
+                {[0, 0.15, 0.3].map((d, i) => (
+                  <motion.span
+                    key={i}
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: d }}
+                    className="w-1.5 h-1.5 rounded-full bg-[#d4af37]/60"
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </div>
+        {/* input bar */}
+        <div className="px-3 py-3 border-t border-[#1f1a16]">
+          <div className="rounded-full bg-[#1f1a16] px-4 py-2 text-[11px] text-[#f4ede0]/40">
+            Message mei...
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function FAQ() {
-  const [open, setOpen] = useState(0);
+// ==========================================================================
+// MESSAGE STACK — Yuanfen's substitute for Inyo's photo card fan
+// Three wine-red bubbles fanning out as you scroll
+// ==========================================================================
+
+function MessageStack() {
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "end start"],
+  });
+
+  // Cards rotate out from center as user scrolls through
+  const rotL = useTransform(scrollYProgress, [0.2, 0.6], [0, -14]);
+  const rotR = useTransform(scrollYProgress, [0.2, 0.6], [0, 14]);
+  const xL = useTransform(scrollYProgress, [0.2, 0.6], [0, -80]);
+  const xR = useTransform(scrollYProgress, [0.2, 0.6], [0, 80]);
+  const yFan = useTransform(scrollYProgress, [0.2, 0.6], [24, 0]);
+
+  const cards = [
+    { text: "quiet, thoughtful. reads before bed.", tag: "alex" },
+    { text: "loves being outside. runs before work.", tag: "sam" },
+    { text: "warm, direct. cooks for people.", tag: "j." },
+  ];
+
   return (
-    <div className="divide-y divide-[#d4af37]/30">
-      {faqs.map(([q, a], i) => (
-        <motion.div
-          key={q}
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="py-5"
-        >
-          <button
-            onClick={() => setOpen(open === i ? -1 : i)}
-            className="flex w-full items-center justify-between text-left text-lg font-medium text-[#7a1f1f]"
-          >
-            {q}
-            <span>{open === i ? "-" : "+"}</span>
-          </button>
-          {open === i && <p className="mt-3 text-sm leading-6 text-stone-600">{a}</p>}
-        </motion.div>
-      ))}
+    <div ref={ref} className="relative h-[440px] flex items-center justify-center">
+      {/* left card */}
+      <motion.div
+        style={{ rotate: rotL, x: xL, y: yFan }}
+        className="absolute w-[220px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/40"
+      >
+        <p className="text-xs text-[#f4ede0]/70 mb-2">mei · about {cards[0].tag}</p>
+        <p className="text-[15px] leading-snug">{cards[0].text}</p>
+      </motion.div>
+      {/* center card */}
+      <motion.div
+        style={{ y: yFan }}
+        className="relative z-10 w-[240px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/50"
+      >
+        <p className="text-xs text-[#f4ede0]/70 mb-2">mei · about {cards[1].tag}</p>
+        <p className="text-[15px] leading-snug">{cards[1].text}</p>
+      </motion.div>
+      {/* right card */}
+      <motion.div
+        style={{ rotate: rotR, x: xR, y: yFan }}
+        className="absolute w-[220px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/40"
+      >
+        <p className="text-xs text-[#f4ede0]/70 mb-2">mei · about {cards[2].tag}</p>
+        <p className="text-[15px] leading-snug">{cards[2].text}</p>
+      </motion.div>
     </div>
   );
 }
 
-export default function App() {
-  const { scrollYProgress } = useScroll();
-  const heroY = useTransform(scrollYProgress, [0, 0.35], [0, -90]);
-  const circleScale = useTransform(scrollYProgress, [0, 0.45], [1, 1.8]);
-  const quoteTrack = useMemo(() => [...quotes, ...quotes, ...quotes], []);
+// ==========================================================================
+// STICKY PHONE — phone pins while text scrolls past in three phases
+// ==========================================================================
+
+const stickyMessages: Msg[][] = [
+  [
+    { from: "mei", text: "good news — i found someone." },
+    { from: "mei", text: "want to see who?" },
+  ],
+  [
+    { from: "user", text: "tell me more about her values first" },
+    { from: "mei", text: "quiet. patient. reads late." },
+  ],
+  [
+    { from: "mei", text: "you both said yes." },
+    { from: "mei", text: "here's her number: (555) 123-4567" },
+  ],
+];
+
+const stickyCaptions = [
+  {
+    title: "an intro, not a match.",
+    body: "mei asks before sharing anyone. no infinite scroll — one person at a time.",
+  },
+  {
+    title: "ask before you say yes.",
+    body: "want to know their values, their communication style, how they spend a saturday? just ask her.",
+  },
+  {
+    title: "when it's mutual, it's real.",
+    body: "no swiping, no ghosting mechanics. a real phone number and a real name.",
+  },
+];
+
+function StickyPhoneSection() {
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start start", "end end"],
+  });
+  const [phase, setPhase] = useState(0);
+
+  useEffect(() => {
+    const unsub = scrollYProgress.on("change", (v) => {
+      if (v < 0.33) setPhase(0);
+      else if (v < 0.66) setPhase(1);
+      else setPhase(2);
+    });
+    return () => unsub();
+  }, [scrollYProgress]);
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#fffaf0] font-sans text-center text-stone-900">
+    <section ref={ref} className="relative" style={{ height: "260vh" }}>
+      <div className="sticky top-0 h-screen flex items-center px-5 md:px-10">
+        <div className="mx-auto w-full max-w-6xl grid md:grid-cols-2 gap-10 items-center">
+          {/* Left: captions cross-fade */}
+          <div className="relative min-h-[220px]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={phase}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.55, ease: EASE }}
+              >
+                <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-4">
+                  phase {phase + 1} of 3
+                </p>
+                <h3 className="text-3xl md:text-5xl font-medium leading-[1.05] tracking-tight mb-5">
+                  {stickyCaptions[phase].title}
+                </h3>
+                <p className="text-lg text-[#f4ede0]/70 max-w-md leading-relaxed">
+                  {stickyCaptions[phase].body}
+                </p>
+              </motion.div>
+            </AnimatePresence>
+            {/* progress dots */}
+            <div className="mt-10 flex gap-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className={`h-1 rounded-full transition-all duration-500 ${
+                    i === phase
+                      ? "w-10 bg-[#a82626]"
+                      : "w-6 bg-[#f4ede0]/15"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+          {/* Right: phone with messages that swap per phase */}
+          <div className="flex justify-center">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={phase}
+                initial={{ opacity: 0, y: 30, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.97 }}
+                transition={{ duration: 0.6, ease: EASE }}
+              >
+                <ChatMockup messages={stickyMessages[phase]} loop />
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ==========================================================================
+// WAITLIST FORM — SMS/email toggle preserved for Twilio compliance
+// ==========================================================================
+
+function WaitlistForm() {
+  const [mode, setMode] = useState<"sms" | "email">("sms");
+  const [value, setValue] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "ok" | "err">("idle");
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!value.trim()) return;
+    setStatus("loading");
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/waitlist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "sms" ? { phone: value } : { email: value }),
+      });
+      if (!res.ok) throw new Error("Something went wrong. Try again.");
+      setStatus("ok");
+    } catch (e: unknown) {
+      setStatus("err");
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    }
+  };
+
+  if (status === "ok") {
+    return (
+      <div className="rounded-2xl border border-[#d4af37]/30 bg-[#1a1410] px-5 py-4 text-sm text-[#f4ede0]">
+        {mode === "sms" ? "text mei from your phone anytime — we'll be in touch." : "you're on the list. we'll email when it's your turn."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      {/* toggle */}
+      <div className="flex gap-1 mb-3 text-xs">
+        <button
+          onClick={() => setMode("sms")}
+          className={`px-4 py-2 rounded-full transition ${
+            mode === "sms"
+              ? "bg-[#d4af37] text-[#0a0807] font-medium"
+              : "bg-[#1f1a16] text-[#f4ede0]/60 hover:text-[#f4ede0]"
+          }`}
+        >
+          SMS
+        </button>
+        <button
+          onClick={() => setMode("email")}
+          className={`px-4 py-2 rounded-full transition ${
+            mode === "email"
+              ? "bg-[#d4af37] text-[#0a0807] font-medium"
+              : "bg-[#1f1a16] text-[#f4ede0]/60 hover:text-[#f4ede0]"
+          }`}
+        >
+          Email
+        </button>
+      </div>
+      {/* input + button */}
+      <div className="flex items-stretch bg-[#1a1410] rounded-2xl border border-[#d4af37]/15 overflow-hidden">
+        <input
+          type={mode === "sms" ? "tel" : "email"}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder={mode === "sms" ? "(555) 123-4567" : "you@somewhere.com"}
+          className="flex-1 bg-transparent px-5 py-3.5 text-sm outline-none placeholder:text-[#f4ede0]/30"
+        />
+        <button
+          onClick={submit}
+          disabled={status === "loading"}
+          className="px-6 py-3.5 text-sm font-medium text-[#f4ede0] bg-[#a82626] hover:bg-[#8a1a1a] disabled:opacity-50 transition"
+        >
+          {status === "loading" ? "..." : mode === "sms" ? "text mei" : "join"}
+        </button>
+      </div>
+      {/* consent disclosure — DO NOT REMOVE (Twilio A2P) */}
+      {mode === "sms" ? (
+        <p className="mt-3 text-[11px] leading-relaxed text-[#f4ede0]/40">
+          By tapping join, you agree to receive SMS from Yuanfen for onboarding and match alerts. Msg &amp; data rates may apply. ~1–10 msgs/week. Reply STOP to opt out, HELP for help. See{" "}
+          <a href="/privacy" className="underline hover:text-[#d4af37]">privacy</a> and{" "}
+          <a href="/terms" className="underline hover:text-[#d4af37]">terms</a>.
+        </p>
+      ) : (
+        <p className="mt-3 text-[11px] leading-relaxed text-[#f4ede0]/40">
+          Email waitlist — no SMS required. See{" "}
+          <a href="/privacy" className="underline hover:text-[#d4af37]">privacy</a>.
+        </p>
+      )}
+      {error && <p className="mt-2 text-xs text-[#c46060]">{error}</p>}
+    </div>
+  );
+}
+
+// ==========================================================================
+// MAIN PAGE
+// ==========================================================================
+
+export default function Page() {
+  const { scrollY, scrollYProgress } = useScroll();
+  const progressBar = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
+  const glowY = useTransform(scrollY, [0, 1500], [0, -300]);
+  const heroTextY = useTransform(scrollY, [0, 800], [0, -80]);
+  const heroTextOpacity = useTransform(scrollY, [0, 500], [1, 0.3]);
+
+  return (
+    <main className="grain min-h-screen bg-[#0a0807] text-[#f4ede0] overflow-x-hidden">
+      {/* scroll progress bar */}
       <motion.div
-        style={{ scaleX: scrollYProgress }}
-        className="fixed left-0 top-0 z-[100] h-1 w-full origin-left bg-[#9b1c1c]"
+        style={{ scaleX: progressBar }}
+        className="fixed left-0 top-0 z-[100] h-[2px] w-full origin-left bg-gradient-to-r from-[#d4af37] via-[#c46060] to-[#a82626]"
       />
 
+      {/* ambient glows — gold + wine, parallax on scroll */}
       <motion.div
-        style={{ scale: circleScale }}
-        className="pointer-events-none fixed -right-32 -top-32 h-80 w-80 rounded-full bg-[#d4af37]/20 blur-3xl"
+        style={{ y: glowY }}
+        className="pointer-events-none fixed left-1/2 -translate-x-1/2 top-[-200px] w-[600px] h-[600px] rounded-full bg-[#d4af37]/[0.05] blur-3xl"
       />
-      <div className="pointer-events-none fixed -bottom-40 -left-40 h-96 w-96 rounded-full bg-[#9b1c1c]/10 blur-3xl" />
+      <motion.div
+        style={{ y: glowY }}
+        className="pointer-events-none fixed left-[15%] top-[-100px] w-[420px] h-[420px] rounded-full bg-[#a82626]/[0.06] blur-3xl"
+      />
 
-      <nav className="sticky top-0 z-50 border-b border-[#d4af37]/20 bg-[#fffaf0]/75 px-5 py-5 backdrop-blur-xl">
+      {/* NAV */}
+      <nav className="sticky top-0 z-50 border-b border-[#d4af37]/10 bg-[#0a0807]/85 backdrop-blur-xl px-5 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between text-sm">
-          <a href="#top" className="font-semibold tracking-tight text-[#9b1c1c]">
-            yuanfen
+          <a href="#top" className="flex items-baseline gap-2 font-medium tracking-tight">
+            <span className="text-[#d4af37] text-lg">缘</span>
+            <span>yuanfen</span>
           </a>
-          <div className="flex gap-6 text-stone-500">
-            <a href="#works" className="hover:text-[#9b1c1c]">how it works</a>
-            <a href="#name" className="hover:text-[#9b1c1c]">meaning</a>
-            <a href="#faq" className="hover:text-[#9b1c1c]">faq</a>
+          <div className="hidden md:flex items-center gap-8 text-[#f4ede0]/60">
+            <a href="#how" className="hover:text-[#f4ede0] transition">how it works</a>
+            <a href="#why" className="hover:text-[#f4ede0] transition">why</a>
+            <a href="#faq" className="hover:text-[#f4ede0] transition">faq</a>
           </div>
+          
+            href="#start"
+            className="px-4 py-2 rounded-full bg-[#a82626] hover:bg-[#8a1a1a] text-[#f4ede0] text-xs font-medium transition"
+          >
+            text mei
+          </a>
         </div>
       </nav>
 
-      <section id="top" className="mx-auto grid max-w-6xl gap-12 px-5 py-24 md:grid-cols-[1.05fr_.95fr] md:items-center md:py-32">
-        <motion.div style={{ y: heroY }} className="mx-auto text-center">
-          <motion.p initial="hidden" animate="show" variants={fadeUp} className="text-xs uppercase tracking-[0.35em] text-[#b8860b]">
-            sms matchmaking · us only
-          </motion.p>
-          <motion.h1
-            initial="hidden"
-            animate="show"
-            variants={fadeUp}
-            className="mx-auto mt-6 max-w-4xl text-6xl font-semibold leading-[0.9] tracking-[-0.07em] text-[#7a1f1f] md:text-8xl"
-          >
-            your person is already on the way.
-          </motion.h1>
-          <motion.p
-            initial="hidden"
-            animate="show"
-            variants={fadeUp}
-            className="mx-auto mt-7 max-w-lg text-lg leading-8 text-stone-600"
-          >
-            a quieter way to date. no endless browsing. no noisy app. just one intentional text when the match feels right.
-          </motion.p>
-          <motion.div initial="hidden" animate="show" variants={fadeUp} className="mx-auto mt-9 max-w-md">
-            <WaitlistForm />
+      {/* HERO */}
+      <section id="top" className="relative px-5 pt-20 pb-24 md:pt-28 md:pb-32">
+        <div className="mx-auto max-w-4xl">
+          <motion.div style={{ y: heroTextY, opacity: heroTextOpacity }}>
+            <Reveal delay={0}>
+              <div className="mb-6 flex items-center gap-3 text-[10px] tracking-wider uppercase">
+                <span className="rounded-full border border-[#a82626]/50 px-3 py-1 text-[#c46060]">
+                  NEW
+                </span>
+                <span className="text-[#f4ede0]/50">introducing mei</span>
+              </div>
+            </Reveal>
+            <Reveal delay={0.15}>
+              <h1 className="text-4xl md:text-6xl font-medium leading-[1.05] tracking-tight mb-6">
+                ai that learns who you{" "}
+                <span className="italic text-[#a82626]">actually</span> are,
+                then matches you.
+              </h1>
+            </Reveal>
+            <Reveal delay={0.3}>
+              <p className="text-lg md:text-xl text-[#f4ede0]/60 leading-relaxed mb-10 max-w-xl">
+                yuanfen is an sms matchmaker. no photos, no swiping. you text mei,
+                she learns who you are, she introduces you when it's right.
+              </p>
+            </Reveal>
+            <Reveal delay={0.45}>
+              <div id="start">
+                <WaitlistForm />
+              </div>
+            </Reveal>
           </motion.div>
-        </motion.div>
-        <FloatingPhone />
-      </section>
-
-      <section id="works" className="mx-auto grid max-w-6xl gap-12 px-5 py-24 md:grid-cols-[.75fr_1.25fr] md:items-start">
-        <motion.div
-          initial={{ opacity: 0, y: 28 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.35 }}
-          className="sticky top-28 hidden text-center md:block"
-        >
-          <p className="text-xs uppercase tracking-[0.35em] text-[#b8860b]">how it works</p>
-          <h2 className="mt-5 text-5xl font-semibold leading-none tracking-[-0.06em] text-[#7a1f1f]">
-            three steps. one real intro.
-          </h2>
-        </motion.div>
-
-        <div>
-          <div className="mb-8 text-center md:hidden">
-            <p className="text-xs uppercase tracking-[0.35em] text-[#b8860b]">how it works</p>
-            <h2 className="mt-5 text-5xl font-semibold leading-none tracking-[-0.06em] text-[#7a1f1f]">
-              three steps. one real intro.
-            </h2>
-          </div>
-          <StepRail />
         </div>
       </section>
 
-      <section id="name" className="relative px-5 py-28">
-        <div className="mx-auto max-w-5xl rounded-[3rem] border border-[#d4af37]/30 bg-white/60 p-8 text-center backdrop-blur md:p-16">
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-xs uppercase tracking-[0.35em] text-[#b8860b]"
-          >
-            our name
-          </motion.p>
-          <motion.h2
-            initial={{ opacity: 0, scale: 0.92 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.7 }}
-            className="mt-6 text-6xl font-semibold tracking-[-0.06em] text-[#7a1f1f] md:text-8xl"
-          >
-            缘分
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0, y: 22 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mx-auto mt-8 max-w-2xl text-lg leading-8 text-stone-600"
-          >
-            Yuanfen is the Chinese idea of a fateful coincidence: the quiet force that brings two people together.
-          </motion.p>
-          <motion.p
-            initial={{ opacity: 0, y: 22 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mx-auto mt-4 max-w-2xl text-lg leading-8 text-stone-600"
-          >
-            romantic, friendly, or fleeting, some connections feel less random than others. yuanfen is built for those moments.
-          </motion.p>
-        </div>
-      </section>
-
-      <section className="overflow-hidden border-y border-[#d4af37]/30 bg-[#7a1f1f] py-12 text-[#fff2bd]">
-        <motion.div
-          animate={{ x: [0, -900] }}
-          transition={{ duration: 28, repeat: Infinity, ease: "linear" }}
-          className="flex w-max gap-6 px-5"
-        >
-          {quoteTrack.map((quote, index) => (
-            <div
-              key={`${quote}-${index}`}
-              className="w-[320px] rounded-full border border-[#d4af37]/40 px-6 py-4 text-sm"
+      {/* BIG STATEMENT #1 */}
+      <section className="min-h-[70vh] flex items-center justify-center px-5">
+        <div className="max-w-4xl">
+          <RevealStagger>
+            <motion.p
+              variants={staggerChild}
+              className="text-4xl md:text-6xl font-medium leading-[1.1] tracking-tight text-center"
             >
-              {quote}
-            </div>
-          ))}
-        </motion.div>
+              somewhere in this city
+            </motion.p>
+            <motion.p
+              variants={staggerChild}
+              className="text-4xl md:text-6xl font-medium leading-[1.1] tracking-tight text-center italic text-[#a82626]"
+            >
+              is someone worth actually meeting.
+            </motion.p>
+            <motion.p
+              variants={staggerChild}
+              className="mt-8 text-lg md:text-xl text-[#f4ede0]/50 text-center max-w-2xl mx-auto"
+            >
+              but endless swiping was never the fix. feeling understood is.
+            </motion.p>
+          </RevealStagger>
+        </div>
       </section>
 
-      <section id="faq" className="mx-auto grid max-w-6xl gap-12 px-5 py-24 md:grid-cols-[.9fr_1.1fr]">
-        <motion.div
-          initial={{ opacity: 0, x: -30 }}
-          whileInView={{ opacity: 1, x: 0 }}
-          viewport={{ once: true }}
-          className="text-center"
-        >
-          <p className="text-xs uppercase tracking-[0.35em] text-[#b8860b]">faq</p>
-          <h2 className="mt-5 text-5xl font-semibold tracking-[-0.06em] text-[#7a1f1f]">simple by design.</h2>
-        </motion.div>
-        <FAQ />
-      </section>
-
-      <section className="px-5 pb-24 text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 28 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="mx-auto max-w-xl rounded-[3rem] border border-[#d4af37]/30 bg-white/60 p-8"
-        >
-          <h2 className="text-4xl font-semibold tracking-[-0.05em] text-[#7a1f1f]">be first to know.</h2>
-          <p className="mt-3 text-sm text-stone-600">we&apos;ll text or email you when yuanfen opens.</p>
-          <div className="mt-7">
-            <WaitlistForm />
+      {/* MEI LEARNS THE REAL YOU — self-typing chat */}
+      <section id="how" className="px-5 py-24">
+        <div className="mx-auto max-w-6xl grid md:grid-cols-2 gap-16 items-center">
+          <div>
+            <Reveal>
+              <p className="text-xs uppercase tracking-[0.35em] text-[#d4af37] mb-5">
+                mei
+              </p>
+            </Reveal>
+            <Reveal delay={0.1}>
+              <h2 className="text-4xl md:text-5xl font-medium leading-[1.05] tracking-tight mb-6">
+                mei learns the real you.
+              </h2>
+            </Reveal>
+            <Reveal delay={0.2}>
+              <p className="text-lg text-[#f4ede0]/70 leading-relaxed max-w-md">
+                she picks up what you'd never put on a profile. what actually matters,
+                what you're actually like, who you become on a wednesday night at 10.
+              </p>
+            </Reveal>
           </div>
-        </motion.div>
+          <Reveal delay={0.15}>
+            <ChatMockup
+              messages={[
+                { from: "mei", text: "hey — i'm mei." },
+                { from: "mei", text: "tell me about a time recently when you felt most like yourself." },
+                { from: "user", text: "walking home late from my sister's place. street was quiet." },
+                { from: "mei", text: "who's around when you feel most yourself?" },
+              ]}
+              loop
+            />
+          </Reveal>
+        </div>
       </section>
 
-      <footer className="border-t border-[#d4af37]/30 px-5 py-8 text-center text-xs text-stone-500">
-        <p>© 2026 yuanfen · us only</p>
-        <p className="mt-2 space-x-3">
-          <a href="/privacy" className="hover:text-[#9b1c1c]">privacy</a>
-          <span>·</span>
-          <a href="/terms" className="hover:text-[#9b1c1c]">terms</a>
-          <span>·</span>
-          <a href="mailto:hello@joinyuanfen.com" className="hover:text-[#9b1c1c]">contact</a>
-        </p>
+      {/* MESSAGE STACK — replaces Inyo's photo fan */}
+      <section className="px-5 py-24">
+        <div className="mx-auto max-w-6xl">
+          <Reveal>
+            <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-center mb-4 max-w-3xl mx-auto leading-[1.05]">
+              not the right person? that's useful too.
+            </h2>
+          </Reveal>
+          <Reveal delay={0.15}>
+            <p className="text-lg text-[#f4ede0]/60 text-center max-w-2xl mx-auto mb-16">
+              pass on an intro and mei doesn't forget. every no sharpens the next yes.
+            </p>
+          </Reveal>
+          <MessageStack />
+        </div>
+      </section>
+
+      {/* BIG STATEMENT #2 */}
+      <section className="min-h-[50vh] flex items-center justify-center px-5">
+        <RevealStagger className="max-w-4xl">
+          <motion.p
+            variants={staggerChild}
+            className="text-3xl md:text-5xl font-medium leading-[1.1] tracking-tight text-center"
+          >
+            a simple chat.
+          </motion.p>
+          <motion.p
+            variants={staggerChild}
+            className="text-3xl md:text-5xl font-medium leading-[1.1] tracking-tight text-center italic text-[#d4af37]"
+          >
+            over a real understanding of you.
+          </motion.p>
+        </RevealStagger>
+      </section>
+
+      {/* STICKY PHONE — three phases scroll past */}
+      <StickyPhoneSection />
+
+      {/* RESEARCH */}
+      <section id="why" className="px-5 py-24">
+        <div className="mx-auto max-w-4xl text-center">
+          <Reveal>
+            <p className="text-xs uppercase tracking-[0.35em] text-[#a82626] mb-6">
+              research
+            </p>
+          </Reveal>
+          <Reveal delay={0.1}>
+            <p className="text-3xl md:text-5xl font-medium leading-[1.15] tracking-tight mb-8">
+              swiping predicts{" "}
+              <span className="text-[#a82626]">5%</span> of long-term compatibility.
+              <br />
+              conversation predicts{" "}
+              <span className="text-[#d4af37]">45%</span>.
+            </p>
+          </Reveal>
+          <Reveal delay={0.25}>
+            <p className="text-sm text-[#f4ede0]/50">
+              joel, eastwick, et al. — psychological science, 2020.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* 缘分 MEANING */}
+      <section className="px-5 py-24 border-y border-[#d4af37]/10">
+        <div className="mx-auto max-w-4xl text-center">
+          <Reveal>
+            <p className="text-[100px] md:text-[160px] font-serif leading-none text-[#d4af37] mb-6">
+              缘分
+            </p>
+          </Reveal>
+          <Reveal delay={0.15}>
+            <p className="text-xs uppercase tracking-[0.35em] text-[#f4ede0]/50 mb-6">
+              yuánfèn
+            </p>
+          </Reveal>
+          <Reveal delay={0.25}>
+            <p className="text-xl md:text-2xl font-medium max-w-2xl mx-auto leading-relaxed">
+              the fated connection between two people — the reason strangers become
+              inevitable.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="px-5 py-24">
+        <div className="mx-auto max-w-3xl">
+          <Reveal>
+            <h2 className="text-4xl md:text-5xl font-medium tracking-tight mb-12">
+              questions
+            </h2>
+          </Reveal>
+          <div className="space-y-4">
+            {[
+              {
+                q: "how does mei actually work?",
+                a: "you text her. she asks questions that don't feel like a survey. over a few days she builds a picture of who you are. when she meets someone she thinks fits, she introduces you — one person at a time.",
+              },
+              {
+                q: "why no photos?",
+                a: "because photos are what broke the apps. mei matches on who you are, not how you photograph. when it's mutual, we hand over a real phone number — you take it from there.",
+              },
+              {
+                q: "is this actually just a chatbot?",
+                a: "no. mei is the interface. the matching runs on real research about relationship compatibility, and every intro is a real person she thinks you'd click with.",
+              },
+              {
+                q: "what if i don't want SMS?",
+                a: "there's an email-only waitlist. no phone number needed. we'll email you when we're ready and you can decide then.",
+              },
+              {
+                q: "what's the research?",
+                a: "joel, eastwick et al. 2020 — self-reported preferences (the stuff on dating apps) predict about 5% of long-term compatibility. actual back-and-forth predicts closer to 45%. mei is built on the second thing.",
+              },
+              {
+                q: "who's behind this?",
+                a: "a small team who watched the apps burn out everyone we know. yuanfen is what we wish existed.",
+              },
+            ].map((item, i) => (
+              <Reveal key={i} delay={i * 0.05} className="border-b border-[#1f1a16] pb-4">
+                <details className="group">
+                  <summary className="flex items-center justify-between cursor-pointer py-3 list-none">
+                    <span className="text-lg font-medium">{item.q}</span>
+                    <span className="text-[#d4af37] text-xl group-open:rotate-45 transition-transform">
+                      +
+                    </span>
+                  </summary>
+                  <p className="text-[#f4ede0]/60 leading-relaxed pb-3 pr-8">
+                    {item.a}
+                  </p>
+                </details>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="px-5 py-32">
+        <div className="mx-auto max-w-4xl text-center">
+          <Reveal>
+            <h2 className="text-5xl md:text-7xl font-medium leading-[1.05] tracking-tight mb-10">
+              your person is out there.
+              <br />
+              <span className="italic text-[#a82626]">let mei find them.</span>
+            </h2>
+          </Reveal>
+          <Reveal delay={0.2}>
+            <div className="flex justify-center">
+              <WaitlistForm />
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="px-5 py-12 border-t border-[#1f1a16]">
+        <div className="mx-auto max-w-6xl flex flex-col md:flex-row justify-between gap-6 text-xs text-[#f4ede0]/40">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[#d4af37] text-base">缘</span>
+            <span>yuanfen — © 2026</span>
+          </div>
+          <div className="flex flex-wrap gap-6">
+            <a href="/privacy" className="hover:text-[#f4ede0] transition">privacy</a>
+            <a href="/terms" className="hover:text-[#f4ede0] transition">terms</a>
+            <a href="mailto:hello@joinyuanfen.com" className="hover:text-[#f4ede0] transition">
+              hello@joinyuanfen.com
+            </a>
+          </div>
+          <p className="max-w-xs md:text-right">
+            in crisis? call or text{" "}
+            <a href="tel:988" className="underline hover:text-[#f4ede0]">988</a>.
+          </p>
+        </div>
       </footer>
     </main>
   );
