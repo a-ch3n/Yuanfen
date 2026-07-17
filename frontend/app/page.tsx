@@ -7,32 +7,25 @@ import {
   useTransform,
   useInView,
   useSpring,
+  useMotionValueEvent,
   AnimatePresence,
 } from "framer-motion";
 import type { Variants } from "framer-motion";
+
 // ==========================================================================
 // PALETTE — gold + wine on dark. Wine (#a82626) is a co-primary accent.
 // ==========================================================================
-// bg          #0a0807
-// card        #1a1410
-// border      #1f1a16
-// cream text  #f4ede0
-// gold        #d4af37
-// gold light  #e6c25f
-// gold muted  #a07426
-// wine        #a82626
-// wine hover  #8a1a1a
-// wine soft   #c46060
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://yuanfen-production-28a5.up.railway.app";
+
+// Standard Inyo-style ease: firm start, soft finish
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 // ==========================================================================
 // MOTION PRIMITIVES
 // ==========================================================================
 
-// Standard Inyo-style ease: firm start, soft finish
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 function Reveal({
   children,
   delay = 0,
@@ -154,16 +147,12 @@ function ChatMockup({
 
   return (
     <div ref={ref} className="w-full flex justify-center">
-      {/* iPhone frame */}
       <div className="relative w-[280px] rounded-[36px] border border-[#d4af37]/15 bg-[#0d0a08] shadow-2xl shadow-black/50 overflow-hidden">
-        {/* notch */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 rounded-b-2xl bg-black z-10" />
-        {/* status bar */}
         <div className="px-5 pt-3 pb-2 flex justify-between text-[10px] text-[#f4ede0]/70 font-medium">
           <span>9:41</span>
           <span>••• 5G</span>
         </div>
-        {/* header */}
         <div className="px-4 pt-2 pb-3 border-b border-[#1f1a16] flex items-center gap-3">
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d4af37] to-[#a82626] flex items-center justify-center text-[#f4ede0] font-bold text-[10px]">
             M
@@ -173,7 +162,6 @@ function ChatMockup({
             <p className="text-[10px] text-[#d4af37]/60 leading-tight">active now</p>
           </div>
         </div>
-        {/* messages */}
         <div className="px-3 py-4 space-y-2 min-h-[380px]">
           <AnimatePresence>
             {messages.slice(0, shown).map((msg, i) => (
@@ -200,7 +188,6 @@ function ChatMockup({
             </motion.div>
           )}
         </div>
-        {/* input bar */}
         <div className="px-3 py-3 border-t border-[#1f1a16]">
           <div className="rounded-full bg-[#1f1a16] px-4 py-2 text-[11px] text-[#f4ede0]/40">
             Message mei...
@@ -213,7 +200,6 @@ function ChatMockup({
 
 // ==========================================================================
 // MESSAGE STACK — Yuanfen's substitute for Inyo's photo card fan
-// Three wine-red bubbles fanning out as you scroll
 // ==========================================================================
 
 function MessageStack() {
@@ -223,7 +209,6 @@ function MessageStack() {
     offset: ["start end", "end start"],
   });
 
-  // Cards rotate out from center as user scrolls through
   const rotL = useTransform(scrollYProgress, [0.2, 0.6], [0, -14]);
   const rotR = useTransform(scrollYProgress, [0.2, 0.6], [0, 14]);
   const xL = useTransform(scrollYProgress, [0.2, 0.6], [0, -80]);
@@ -238,7 +223,6 @@ function MessageStack() {
 
   return (
     <div ref={ref} className="relative h-[440px] flex items-center justify-center">
-      {/* left card */}
       <motion.div
         style={{ rotate: rotL, x: xL, y: yFan }}
         className="absolute w-[220px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/40"
@@ -246,7 +230,6 @@ function MessageStack() {
         <p className="text-xs text-[#f4ede0]/70 mb-2">mei · about {cards[0].tag}</p>
         <p className="text-[15px] leading-snug">{cards[0].text}</p>
       </motion.div>
-      {/* center card */}
       <motion.div
         style={{ y: yFan }}
         className="relative z-10 w-[240px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/50"
@@ -254,7 +237,6 @@ function MessageStack() {
         <p className="text-xs text-[#f4ede0]/70 mb-2">mei · about {cards[1].tag}</p>
         <p className="text-[15px] leading-snug">{cards[1].text}</p>
       </motion.div>
-      {/* right card */}
       <motion.div
         style={{ rotate: rotR, x: xR, y: yFan }}
         className="absolute w-[220px] rounded-3xl bg-[#a82626] text-[#f4ede0] p-5 shadow-2xl shadow-black/40"
@@ -308,20 +290,16 @@ function StickyPhoneSection() {
   });
   const [phase, setPhase] = useState(0);
 
-  useEffect(() => {
-  const unsub = scrollYProgress.on("change", (v: number) => {
-  if (v < 0.33) setPhase(0);
-      else if (v < 0.66) setPhase(1);
-      else setPhase(2);
-    });
-    return () => unsub();
-  }, [scrollYProgress]);
+  useMotionValueEvent(scrollYProgress, "change", (v: number) => {
+    if (v < 0.33) setPhase(0);
+    else if (v < 0.66) setPhase(1);
+    else setPhase(2);
+  });
 
   return (
     <section ref={ref} className="relative" style={{ height: "260vh" }}>
       <div className="sticky top-0 h-screen flex items-center px-5 md:px-10">
         <div className="mx-auto w-full max-w-6xl grid md:grid-cols-2 gap-10 items-center">
-          {/* Left: captions cross-fade */}
           <div className="relative min-h-[220px]">
             <AnimatePresence mode="wait">
               <motion.div
@@ -342,21 +320,17 @@ function StickyPhoneSection() {
                 </p>
               </motion.div>
             </AnimatePresence>
-            {/* progress dots */}
             <div className="mt-10 flex gap-2">
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
                   className={`h-1 rounded-full transition-all duration-500 ${
-                    i === phase
-                      ? "w-10 bg-[#a82626]"
-                      : "w-6 bg-[#f4ede0]/15"
+                    i === phase ? "w-10 bg-[#a82626]" : "w-6 bg-[#f4ede0]/15"
                   }`}
                 />
               ))}
             </div>
           </div>
-          {/* Right: phone with messages that swap per phase */}
           <div className="flex justify-center">
             <AnimatePresence mode="wait">
               <motion.div
@@ -407,14 +381,15 @@ function WaitlistForm() {
   if (status === "ok") {
     return (
       <div className="rounded-2xl border border-[#d4af37]/30 bg-[#1a1410] px-5 py-4 text-sm text-[#f4ede0]">
-        {mode === "sms" ? "text mei from your phone anytime — we'll be in touch." : "you're on the list. we'll email when it's your turn."}
+        {mode === "sms"
+          ? "text mei from your phone anytime — we'll be in touch."
+          : "you're on the list. we'll email when it's your turn."}
       </div>
     );
   }
 
   return (
     <div className="w-full max-w-md">
-      {/* toggle */}
       <div className="flex gap-1 mb-3 text-xs">
         <button
           onClick={() => setMode("sms")}
@@ -437,7 +412,6 @@ function WaitlistForm() {
           Email
         </button>
       </div>
-      {/* input + button */}
       <div className="flex items-stretch bg-[#1a1410] rounded-2xl border border-[#d4af37]/15 overflow-hidden">
         <input
           type={mode === "sms" ? "tel" : "email"}
@@ -455,7 +429,6 @@ function WaitlistForm() {
           {status === "loading" ? "..." : mode === "sms" ? "text mei" : "join"}
         </button>
       </div>
-      {/* consent disclosure — DO NOT REMOVE (Twilio A2P) */}
       {mode === "sms" ? (
         <p className="mt-3 text-[11px] leading-relaxed text-[#f4ede0]/40">
           By tapping join, you agree to receive SMS from Yuanfen for onboarding and match alerts. Msg &amp; data rates may apply. ~1–10 msgs/week. Reply STOP to opt out, HELP for help. See{" "}
@@ -486,13 +459,11 @@ export default function Page() {
 
   return (
     <main className="grain min-h-screen bg-[#0a0807] text-[#f4ede0] overflow-x-hidden">
-      {/* scroll progress bar */}
       <motion.div
         style={{ scaleX: progressBar }}
         className="fixed left-0 top-0 z-[100] h-[2px] w-full origin-left bg-gradient-to-r from-[#d4af37] via-[#c46060] to-[#a82626]"
       />
 
-      {/* ambient glows — gold + wine, parallax on scroll */}
       <motion.div
         style={{ y: glowY }}
         className="pointer-events-none fixed left-1/2 -translate-x-1/2 top-[-200px] w-[600px] h-[600px] rounded-full bg-[#d4af37]/[0.05] blur-3xl"
@@ -502,7 +473,6 @@ export default function Page() {
         className="pointer-events-none fixed left-[15%] top-[-100px] w-[420px] h-[420px] rounded-full bg-[#a82626]/[0.06] blur-3xl"
       />
 
-      {/* NAV */}
       <nav className="sticky top-0 z-50 border-b border-[#d4af37]/10 bg-[#0a0807]/85 backdrop-blur-xl px-5 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between text-sm">
           <a href="#top" className="flex items-baseline gap-2 font-medium tracking-tight">
@@ -523,7 +493,6 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* HERO */}
       <section id="top" className="relative px-5 pt-20 pb-24 md:pt-28 md:pb-32">
         <div className="mx-auto max-w-4xl">
           <motion.div style={{ y: heroTextY, opacity: heroTextOpacity }}>
@@ -557,7 +526,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* BIG STATEMENT #1 */}
       <section className="min-h-[70vh] flex items-center justify-center px-5">
         <div className="max-w-4xl">
           <RevealStagger>
@@ -583,7 +551,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* MEI LEARNS THE REAL YOU — self-typing chat */}
       <section id="how" className="px-5 py-24">
         <div className="mx-auto max-w-6xl grid md:grid-cols-2 gap-16 items-center">
           <div>
@@ -618,7 +585,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* MESSAGE STACK — replaces Inyo's photo fan */}
       <section className="px-5 py-24">
         <div className="mx-auto max-w-6xl">
           <Reveal>
@@ -635,7 +601,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* BIG STATEMENT #2 */}
       <section className="min-h-[50vh] flex items-center justify-center px-5">
         <RevealStagger className="max-w-4xl">
           <motion.p
@@ -653,10 +618,8 @@ export default function Page() {
         </RevealStagger>
       </section>
 
-      {/* STICKY PHONE — three phases scroll past */}
       <StickyPhoneSection />
 
-      {/* RESEARCH */}
       <section id="why" className="px-5 py-24">
         <div className="mx-auto max-w-4xl text-center">
           <Reveal>
@@ -681,7 +644,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* 缘分 MEANING */}
       <section className="px-5 py-24 border-y border-[#d4af37]/10">
         <div className="mx-auto max-w-4xl text-center">
           <Reveal>
@@ -703,7 +665,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FAQ */}
       <section id="faq" className="px-5 py-24">
         <div className="mx-auto max-w-3xl">
           <Reveal>
@@ -756,7 +717,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FINAL CTA */}
       <section className="px-5 py-32">
         <div className="mx-auto max-w-4xl text-center">
           <Reveal>
@@ -774,7 +734,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* FOOTER */}
       <footer className="px-5 py-12 border-t border-[#1f1a16]">
         <div className="mx-auto max-w-6xl flex flex-col md:flex-row justify-between gap-6 text-xs text-[#f4ede0]/40">
           <div className="flex items-baseline gap-2">
