@@ -1,5 +1,5 @@
 """
-Yuanfen — SMS-based matchmaking.
+Yuanfen — SMS/iMessage-based matchmaking.
 FastAPI entrypoint.
 """
 import logging
@@ -13,11 +13,12 @@ from .config import settings
 from . import models, schemas
 from .onboarding import handle_incoming
 from .matching_service import run_matching
+from . import loop_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Yuanfen API", version="0.2.0")
+app = FastAPI(title="Yuanfen API", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,7 +32,7 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup():
     init_db()
-    logger.info("Yuanfen API ready.")
+    logger.info("Yuanfen API ready. Messaging provider: %s", settings.MESSAGING_PROVIDER)
 
 
 @app.get("/")
@@ -41,20 +42,24 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "provider": settings.MESSAGING_PROVIDER}
 
 
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
 # Waitlist
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
 
 @app.post("/waitlist", response_model=schemas.WaitlistOut)
 def join_waitlist(payload: schemas.WaitlistIn, db: Session = Depends(get_db)):
     existing = None
     if payload.email:
-        existing = db.query(models.WaitlistEntry).filter(models.WaitlistEntry.email == payload.email).first()
+        existing = db.query(models.WaitlistEntry).filter(
+            models.WaitlistEntry.email == payload.email
+        ).first()
     if not existing and payload.phone:
-        existing = db.query(models.WaitlistEntry).filter(models.WaitlistEntry.phone == payload.phone).first()
+        existing = db.query(models.WaitlistEntry).filter(
+            models.WaitlistEntry.phone == payload.phone
+        ).first()
     if existing:
         return existing
     entry = models.WaitlistEntry(
@@ -69,14 +74,72 @@ def join_waitlist(payload: schemas.WaitlistIn, db: Session = Depends(get_db)):
     return entry
 
 
-# ─────────────────────────────────────────────────────────
-# Twilio SMS webhook (with signature verification)
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
+# LoopMessage webhook (iMessage — primary inbound)
+# ──────────────────────────────────────────────────────────────────────
+
+@app.post("/loop/webhook")
+async def loop_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Inbound iMessage from LoopMessage.
+
+    LoopMessage posts JSON with an `alert_type` discriminator. We only act on
+    inbound text messages; delivery receipts and reaction events are ack'd
+    and ignored.
+
+    Note: handle_incoming() sends its own reply via sms_service, which routes
+    to LoopMessage when MESSAGING_PROVIDER=loop. Do NOT send again here.
+    """
+    # Optional shared-secret check — set the same value in the LoopMessage dashboard
+    if settings.LOOP_WEBHOOK_SECRET:
+        provided = request.headers.get("Authorization", "")
+        if provided != settings.LOOP_WEBHOOK_SECRET:
+            logger.warning("Rejected Loop webhook: bad secret")
+            raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        logger.warning("Loop webhook: non-JSON body")
+        raise HTTPException(status_code=400, detail="Expected JSON")
+
+    # Log raw payload until you've confirmed field names in Railway logs
+    logger.info("Loop webhook payload: %s", payload)
+
+    alert_type = payload.get("alert_type", "")
+
+    # Only inbound texts trigger the onboarding state machine
+    if alert_type != "message_inbound":
+        return {"ok": True, "ignored": alert_type or "unknown"}
+
+    sender = (
+        payload.get("recipient")
+        or payload.get("from")
+        or payload.get("contact")
+        or ""
+    )
+    text = payload.get("text") or payload.get("message") or ""
+
+    if not sender or not text:
+        logger.info("Loop webhook: missing sender or text, ignoring")
+        return {"ok": True, "ignored": "missing sender or text"}
+
+    phone = loop_service.normalize_phone(sender)
+
+    # Log inbound, then run the state machine (which sends its own reply)
+    loop_service._log_message(phone, text, direction="inbound")
+    handle_incoming(db, phone, text)
+
+    return {"ok": True}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Twilio SMS webhook (legacy — kept for rollback)
+# ──────────────────────────────────────────────────────────────────────
 
 async def _verify_twilio_signature(request: Request) -> bool:
     """Verify the request actually came from Twilio. Skip in dev mode."""
     if not settings.TWILIO_AUTH_TOKEN:
-        # Dev mode — no auth token configured, accept everything
         return True
 
     try:
@@ -90,7 +153,6 @@ async def _verify_twilio_signature(request: Request) -> bool:
         return False
 
     validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
-    # Twilio signs the full URL + sorted form params
     url = str(request.url)
     form = await request.form()
     params = {k: v for k, v in form.items()}
@@ -111,15 +173,13 @@ async def sms_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing From")
 
     handle_incoming(db, from_, body)
-    # We already sent the reply via Twilio API in handle_incoming.
-    # Respond with empty TwiML so Twilio doesn't send a default reply.
     twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
     return Response(content=twiml, media_type="application/xml")
 
 
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
 # Admin (token-protected)
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
 
 def require_admin(x_admin_token: Optional[str] = Header(default=None)):
     if not settings.ADMIN_TOKEN or x_admin_token != settings.ADMIN_TOKEN:
@@ -138,9 +198,17 @@ def admin_matches(db: Session = Depends(get_db), _: None = Depends(require_admin
 
 @app.get("/admin/waitlist")
 def admin_waitlist(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    rows = db.query(models.WaitlistEntry).order_by(models.WaitlistEntry.created_at.desc()).all()
+    rows = db.query(models.WaitlistEntry).order_by(
+        models.WaitlistEntry.created_at.desc()
+    ).all()
     return [
-        {"id": r.id, "email": r.email, "phone": r.phone, "referral": r.referral, "created_at": r.created_at}
+        {
+            "id": r.id,
+            "email": r.email,
+            "phone": r.phone,
+            "referral": r.referral,
+            "created_at": r.created_at,
+        }
         for r in rows
     ]
 
@@ -162,7 +230,6 @@ def admin_delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     phone = user.phone
-    # Matches cascade-delete via FK; messages cascade via relationship.
     db.query(models.Match).filter(
         (models.Match.user_a_id == user_id) | (models.Match.user_b_id == user_id)
     ).delete(synchronize_session=False)
@@ -186,9 +253,9 @@ def admin_delete_waitlist(
     return {"deleted": True, "id": entry_id}
 
 
-# ─────────────────────────────────────────────────────────
-# Dev helper
-# ─────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
+# Dev helpers
+# ──────────────────────────────────────────────────────────────────────
 
 @app.post("/dev/sms")
 def dev_sms(
@@ -196,6 +263,20 @@ def dev_sms(
     body: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """Simulate an inbound SMS for local testing without Twilio."""
+    """Simulate an inbound message for local testing without a provider."""
     reply = handle_incoming(db, phone, body)
     return {"phone": phone, "received": body, "reply": reply}
+
+
+@app.post("/dev/loop-send")
+def dev_loop_send(
+    to: str = Form(...),
+    body: str = Form("test from mei"),
+    _: None = Depends(require_admin),
+):
+    """
+    Admin-only: fire a test iMessage through LoopMessage.
+    Use this against a sandbox contact before buying a sender name.
+    """
+    result = loop_service.send_message(to, body)
+    return result
