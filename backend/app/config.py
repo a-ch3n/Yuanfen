@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
     ADMIN_TOKEN: str = "change-me-please"
-
+# --- LoopMessage (iMessage) ---
+    LOOP_AUTH_KEY: str = ""
+    LOOP_SECRET_KEY: str = ""
+    LOOP_SENDER_NAME: str = ""        # e.g. "mei@yuanfen.com" from the dashboard
+    LOOP_WEBHOOK_SECRET: str = ""     # optional shared secret you set on the callback
+    MESSAGING_PROVIDER: str = "loop"  # "loop" or "twilio"
 
 settings = Settings()
