@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     ADMIN_TOKEN: str = "yftest123"
 
     # --- LoopMessage (iMessage) ---
-    LOOP_AUTH_KEY: str = ""
-    LOOP_SECRET_KEY: str = ""
-    LOOP_SENDER_NAME: str = ""
-    LOOP_WEBHOOK_SECRET: str = ""
+    LOOP_AUTH_KEY: str = "2LBMdZGOA8J7f9YT-_ApFRDVRGMignlYqDS_NOaWxw4bppK2SuSvrwp4rq8MNb4G"
+    LOOP_SECRET_KEY: str = "2LBMdZGOA8J7f9YT-_ApFRDVRGMignlYqDS_NOaWxw4bppK2SuSvrwp4rq8MNb4G"
+    LOOP_SENDER_NAME: str = "mei"
+    LOOP_WEBHOOK_SECRET: str = "<any random string you also paste in their dashboard>"
     MESSAGING_PROVIDER: str = "loop"  # "loop" or "twilio"
 
 
