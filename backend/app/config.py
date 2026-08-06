@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
-    ADMIN_TOKEN: str = "change-me-please"
+    ADMIN_TOKEN: str = "yftest123"
 
     # --- LoopMessage (iMessage) ---
     LOOP_AUTH_KEY: str = ""
